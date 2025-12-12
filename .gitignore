@@ -1,0 +1,65 @@
+# 虚拟环境
+venv/
+node_modules/
+
+# 生成文件
+dist/
+frontend_dist/
+build/
+
+# 数据库文件
+instance/inventory.db
+
+# 日志文件
+*.log
+pyinstaller_*.txt
+
+# 临时文件
+*.bak
+.DS_Store
+*.tmp
+
+# 测试相关
+playwright-report/
+test-results/
+
+# IDE 配置
+.vscode/
+.idea/
+*.swp
+
+# 操作系统文件
+Thumbs.db
+
+# 打包配置相关
+*.pkg
+*.exe
+*.toc
+*.pyz
+*.zip
+
+# 环境变量文件
+.env
+.env.local
+.env.*.local
+
+# 备份文件
+*.bak
+*.old
+
+# PyInstaller 相关
+__pycache__/
+*.pyc
+*.pyo
+
+# 编辑器配置
+*.sublime-project
+*.sublime-workspace
+*.idea/
+.vscode/
+
+# 其他非功能文件
+*.md.bak
+*.md.tmp
+*.jsx.bak
+*.css.bak

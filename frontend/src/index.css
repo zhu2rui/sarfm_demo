@@ -1,0 +1,517 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #f0f2f5;
+}
+
+/* 移除全局表格交替行颜色样式，改为在组件内部管理 */
+/* 避免与组件内部的选中行样式冲突 */
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
+
+/* 登录页面样式 */
+.login-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background-color: #f0f2f5;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 400px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* 确保登录表单文字显示正常 */
+.login-card .ant-card-head-title {
+  color: #000 !important;
+  font-size: 18px !important;
+}
+
+.login-card .ant-form-item-label > label {
+  color: #000 !important;
+  font-size: 14px !important;
+}
+
+.login-card .ant-input {
+  color: #000 !important;
+  font-size: 14px !important;
+}
+
+.login-card .ant-btn {
+  color: #fff !important;
+  font-size: 14px !important;
+}
+
+/* 主页面样式 */
+.logo {
+  height: 32px;
+  margin: 16px;
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+}
+
+/* 桌面端侧边栏样式 */
+/* 重要：不要随意修改这些关键样式，否则会导致侧边栏高度异常 */
+.desktop-sider {
+  position: relative;
+  height: 100% !important; /* 确保侧边栏占满整个父容器高度 */
+  display: flex !important;
+  flex-direction: column !important;
+  min-height: 0 !important;
+}
+
+/* 侧边栏折叠按钮样式 */
+.sidebar-collapse-trigger {
+  z-index: 10;
+  position: absolute !important;
+  bottom: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+}
+
+/* 确保侧边栏菜单能够占据剩余空间 */
+.desktop-sider .ant-menu {
+  flex: 1 !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* 表格定义区域样式 */
+.table-definition {
+  background-color: #f5f5f5;
+  padding: 20px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+
+.column-item {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+  align-items: center;
+}
+
+/* 数据表格样式 */
+.data-table-container {
+  margin-top: 20px;
+}
+
+.operation-buttons {
+  margin-bottom: 10px;
+  display: flex;
+  gap: 10px;
+}
+
+/* 默认显示菜单按钮 */
+.menu-btn {
+  display: block;
+}
+
+/* 移动端侧边栏全局样式 */
+.mobile-sider {
+  display: none;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .column-item {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .operation-buttons {
+    flex-wrap: wrap;
+  }
+  
+  /* 隐藏桌面端侧边栏 */
+  .desktop-sider {
+    display: none !important;
+  }
+  
+  /* 移动端侧边栏样式 */
+  .mobile-sider {
+    position: fixed;
+    z-index: 1000;
+    top: 64px;
+    left: 0;
+    height: calc(100vh - 64px);
+  }
+  
+  /* 菜单按钮样式 */
+  .menu-btn {
+    display: block !important;
+  }
+  
+  /* 登录页适配 */
+  .login-card {
+    width: 90% !important;
+    margin: 16px;
+  }
+  
+  /* 表格容器适配 */
+  .data-table-container {
+    overflow-x: auto;
+  }
+  
+  /* 主内容区域适配 */
+  .ant-layout-content {
+    padding: 16px !important;
+    margin: 0 !important;
+    min-width: auto !important;
+  }
+  
+  /* 操作按钮区域适配 */
+  .operation-buttons {
+    flex-direction: column;
+    gap: 8px;
+  }
+  
+  /* 按钮大小适配 */
+  .ant-btn {
+    min-width: 72px;
+    padding: 4px 8px;
+    font-size: 12px;
+    height: 32px;
+  }
+  
+  /* 输入框适配 */
+  .ant-input, .ant-select-selector {
+    height: 32px !important;
+    font-size: 12px;
+  }
+  
+  /* 表格操作列适配 */
+  .action-button {
+    margin: 2px 0 !important;
+    width: 100%;
+    max-width: 80px;
+  }
+  
+  /* 卡片内边距适配 */
+  .ant-card-body {
+    padding: 12px !important;
+  }
+  
+  /* 表单间距适配 */
+  .ant-form-item {
+    margin-bottom: 12px !important;
+  }
+  
+  /* 表格行高适配 */
+  .ant-table-tbody > tr > td {
+    padding: 8px 4px !important;
+    font-size: 12px;
+  }
+  
+  /* 表格标题适配 */
+  .ant-table-thead > tr > th {
+    padding: 10px 4px !important;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  
+  /* 模态框适配 */
+  .ant-modal {
+    top: 10px;
+  }
+  
+  .ant-modal-body {
+    padding: 16px !important;
+  }
+  
+  .ant-modal-footer {
+    padding: 12px 16px !important;
+  }
+  
+  /* 统计图表适配 */
+  .ant-chart {
+    width: 100% !important;
+    height: 200px !important;
+  }
+  
+  /* 导航菜单适配 */
+  .ant-menu {
+    font-size: 14px;
+  }
+  
+  .ant-menu-item {
+    padding: 12px 16px !important;
+  }
+  
+  /* 标题适配 */
+  h1, h2, h3, h4, h5, h6 {
+    margin-bottom: 12px !important;
+  }
+  
+  h1 {
+    font-size: 20px !important;
+  }
+  
+  h2 {
+    font-size: 18px !important;
+  }
+  
+  h3 {
+    font-size: 16px !important;
+  }
+  
+  /* 分页控件适配 */
+  .ant-pagination {
+    margin: 16px 0 !important;
+  }
+  
+  .ant-pagination-item {
+    min-width: 32px;
+    height: 32px;
+    line-height: 32px;
+    font-size: 12px;
+  }
+  
+  /* 上传组件适配 */
+  .ant-upload {
+    width: 100% !important;
+  }
+  
+  /* 卡片标题适配 */
+  .ant-card-head-title {
+    font-size: 14px !important;
+    padding: 12px 0 !important;
+  }
+  
+  /* 卡片样式优化 */
+  .ant-card {
+    border-radius: 8px;
+  }
+  
+  /* 内容区域背景色 */
+  .ant-layout {
+    background-color: #fff !important;
+  }
+  
+  /* 确保Content区域能够完整显示 */
+  .ant-layout-content > * {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+  
+  /* 表格容器确保可以横向滚动 */
+  .ant-table-container {
+    overflow-x: auto !important;
+    width: 100% !important;
+  }
+  
+  /* 确保表格可以自适应 */
+  .ant-table {
+    min-width: 0 !important;
+    width: 100% !important;
+  }
+}
+
+/* 平板端适配 */
+@media (min-width: 769px) and (max-width: 1024px) {
+  /* 菜单按钮样式 */
+  .menu-btn {
+    display: block !important;
+  }
+  
+  /* 移除固定宽度设置，让Sider组件能够根据断点自动调整宽度 */
+  
+  /* 调整内容区域 */
+  .ant-layout-content {
+    padding: 12px !important;
+    margin: 0 !important;
+    min-width: 0 !important;
+    flex: 1 !important;
+  }
+  
+  /* 确保主布局容器能够正确计算宽度 */
+  .ant-layout {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+  
+  /* 确保表格容器能够横向滚动 */
+  .ant-table-container {
+    overflow-x: auto !important;
+    width: 100% !important;
+  }
+  
+  /* 优化表格列宽 */
+  .ant-table-thead > tr > th {
+    min-width: 80px !important;
+    padding: 10px 8px !important;
+    font-size: 13px;
+  }
+  
+  /* 优化表格内容 */
+  .ant-table-tbody > tr > td {
+    padding: 8px 8px !important;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+  
+  /* 确保卡片容器能够自适应 */
+  .ant-card {
+    min-width: 0 !important;
+    width: 100% !important;
+  }
+  
+  /* 确保内容区域能够完整显示 */
+  .ant-layout-content > * {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+  
+  /* 优化操作按钮区域 */
+  .operation-buttons {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  
+  /* 优化表单布局 */
+  .ant-form-horizontal .ant-form-item {
+    margin-bottom: 12px !important;
+  }
+  
+  /* 优化输入框宽度 */
+  .ant-input, .ant-select, .ant-input-number {
+    max-width: 100% !important;
+  }
+}
+
+/* 桌面端适配 */
+@media (min-width: 1025px) {
+  /* 菜单按钮样式 */
+  .menu-btn {
+    display: block !important;
+  }
+}
+
+/* 通用响应式样式 */
+.app-layout {
+  transition: all 0.3s ease;
+}
+
+/* 确保表格在小屏幕上可以横向滚动 */
+.ant-table {
+  overflow: auto;
+}
+
+/* 优化移动端触摸体验 */
+.ant-btn, .ant-menu-item, .ant-menu-submenu-title {
+  touch-action: manipulation;
+  cursor: pointer;
+}
+
+/* 确保所有可点击元素都有足够的触摸区域 */
+.ant-btn, .ant-menu-item, .ant-menu-submenu-title, .ant-select, .ant-input {
+  min-height: 40px;
+}
+
+/* 优化移动端表单布局 */
+@media (max-width: 768px) {
+  .ant-form-horizontal .ant-form-item-label {
+    text-align: left;
+    margin-bottom: 8px;
+  }
+  
+  .ant-form-horizontal .ant-form-item {
+    margin-bottom: 16px;
+  }
+}
+
+/* 优化移动端选择器 */
+@media (max-width: 768px) {
+  .ant-select-dropdown {
+    max-height: 300px;
+  }
+}
+
+/* 优化移动端表格展开行 */
+@media (max-width: 768px) {
+  .expanded-hidden-columns > div {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* 优化移动端模态框 */
+@media (max-width: 576px) {
+  .ant-modal {
+    width: 95% !important;
+    margin: 8px;
+  }
+}
+
+/* 确保文本在小屏幕上可以换行 */
+.ant-typography, .ant-table-cell, .ant-menu-title-content {
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+/* 优化移动端图标大小 */
+@media (max-width: 768px) {
+  .anticon {
+    font-size: 16px;
+  }
+  
+  .ant-menu-item .anticon,
+  .ant-menu-submenu-title .anticon {
+    font-size: 14px;
+  }
+}
+
+/* 确保空状态在小屏幕上显示正常 */
+@media (max-width: 768px) {
+  .ant-empty {
+    padding: 24px 0;
+  }
+  
+  .ant-empty-image {
+    width: 80px;
+    height: 80px;
+  }
+}
+
+/* 优化移动端分页 */
+@media (max-width: 768px) {
+  .ant-pagination-options {
+    display: none;
+  }
+}
+
+/* 优化移动端加载状态 */
+@media (max-width: 768px) {
+  .ant-spin {
+    font-size: 12px;
+  }
+  
+  .ant-spin-text {
+    font-size: 12px;
+  }
+}
+
+/* 确保表单标签在小屏幕上显示正常 */
+@media (max-width: 768px) {
+  .ant-form-item-label > label {
+    font-size: 12px;
+  }
+}
+
