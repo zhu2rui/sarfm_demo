@@ -646,15 +646,13 @@ const DataManagement = () => {
     const actionColumn = {
       title: '操作',
       key: 'action',
-      width: isMobile ? 180 : 250, // 减少宽度，因为只需要两个按钮
+      width: isMobile ? 125 : 170, // 精确调整宽度，正好适配两个按钮和间距
       align: 'center', // 居中对齐
       fixed: 'right', // 固定在右侧，提升用户体验
       render: (text, record) => (
         <Space 
           size={isMobile ? 'small' : 'middle'} 
           style={{ 
-            width: '100%', 
-            justifyContent: 'center',
             flexWrap: 'nowrap' // 所有设备都禁止换行，确保按钮在同一水平线上
           }}
         >

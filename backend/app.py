@@ -202,8 +202,9 @@ def login():
     data = request.get_json()
     username = data.get('username')
     password = data.get('password')
+    remember = data.get('remember', False)
     
-    logger.info(f'登录请求: 用户名={username}, 密码={password}')
+    logger.info(f'登录请求: 用户名={username}, 密码={password}, remember={remember}')
     
     if not username:
         logger.info(f'登录失败: 用户名不能为空')
@@ -269,6 +270,14 @@ def login():
     
     logger.info(f'登录成功: 用户名 {username}')
     
+    # 根据remember参数设置token过期时间
+    if remember:
+        # 30天内免登录
+        expires_in = timedelta(days=30)
+    else:
+        # 1小时过期
+        expires_in = timedelta(hours=1)
+    
     # 生成JWT token (使用PyJWT 2.x的正确API)
     try:
         token = jwt.encode(
@@ -276,12 +285,12 @@ def login():
                 'user_id': user.id,
                 'username': user.username,
                 'role': user.role,
-                'exp': datetime.utcnow() + timedelta(hours=24)  # token有效期24小时
+                'exp': datetime.utcnow() + expires_in  # 设置token过期时间
             }, 
             app.config['SECRET_KEY'], 
             algorithm='HS256'
         )
-        logger.info(f'成功生成token: {token}')
+        logger.info(f'成功生成token: {token}, 过期时间: {expires_in}')
     except Exception as e:
         logger.error(f'生成token失败: {e}')
         # 如果JWT生成失败，使用一个简单的token

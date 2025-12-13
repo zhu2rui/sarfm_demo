@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Table, Checkbox, Button, message, Modal, Space, Tag, Spin } from 'antd'
 import { DeleteOutlined, LoadingOutlined } from '@ant-design/icons'
 
@@ -82,7 +82,8 @@ const MultiSelectDelete = ({
     
     // 计算每列的宽度
     columns.forEach(column => {
-      if (!column.dataIndex) return
+      // 跳过操作列和没有dataIndex的列
+      if (!column.dataIndex || column.key === 'action' || column.title === '操作') return
       
       const columnKey = column.key || column.dataIndex
       
@@ -445,9 +446,7 @@ const MultiSelectDelete = ({
           newColumn.maxWidth = Math.min(calculatedWidth * 1.2, 150) // 最大宽度150px
         }
       } else if (columnKey === 'action' || column.title === '操作') {
-        // 处理操作列，设置合适的最小宽度，不限制最大宽度
-        newColumn.width = 'auto' // 使用自适应宽度
-        newColumn.minWidth = 120 // 增加最小宽度，确保有足够空间显示所有按钮
+        // 处理操作列，保留传入的宽度设置，不覆盖
         newColumn.className = 'action-column' // 添加action-column类名，方便CSS选择器定位
       }
       

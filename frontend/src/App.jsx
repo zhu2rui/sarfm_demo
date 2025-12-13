@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Layout, Menu, Button, Form, Input, Card, Typography, message } from 'antd'
+import { Layout, Menu, Button, Form, Input, Card, Typography, message, Checkbox } from 'antd'
 import { UserOutlined, LockOutlined, DatabaseOutlined, BarChartOutlined, MenuOutlined } from '@ant-design/icons'
 import { BrowserRouter as Router, Routes, Route, Navigate, Link, useNavigate } from 'react-router-dom'
 import axios from 'axios'
@@ -159,6 +159,9 @@ const Login = ({ setIsLoggedIn }) => {
               placeholder="密码"
               onChange={(e) => setPassword(e.target.value)}
             />
+          </Form.Item>
+          <Form.Item name="remember" valuePropName="checked" noStyle>
+            <Checkbox>30天内免登录</Checkbox>
           </Form.Item>
           <Form.Item>
             <Button type="primary" htmlType="submit" block>
@@ -652,13 +655,24 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn }) => {
 const useTableContext = () => useContext(TableContext)
 
 function App() {
-  const [isLoggedIn, setIsLoggedIn] = useState(false)
-
-  // 检查本地存储中是否有token，判断是否已登录
-  useEffect(() => {
+  // 初始状态从localStorage中读取，避免刷新时短暂显示登录页
+  const [isLoggedIn, setIsLoggedIn] = useState(() => {
     const token = localStorage.getItem('token')
-    if (token) {
-      setIsLoggedIn(true)
+    return !!token
+  })
+
+  // 监听token变化，更新登录状态
+  useEffect(() => {
+    const checkLoginStatus = () => {
+      const token = localStorage.getItem('token')
+      setIsLoggedIn(!!token)
+    }
+    
+    // 监听localStorage变化（例如在其他标签页注销登录）
+    window.addEventListener('storage', checkLoginStatus)
+    
+    return () => {
+      window.removeEventListener('storage', checkLoginStatus)
     }
   }, [])
 
