@@ -76,7 +76,7 @@ const TableDefinition = () => {
                       valuePropName="checked"
                       noStyle
                     >
-                      <Checkbox>{t('tableDefinition.required')}</Checkbox>
+                      <Checkbox>下拉显示</Checkbox>
                     </Form.Item>
                     {/* 自增功能配置 */}
                     <Form.Item
@@ -85,7 +85,7 @@ const TableDefinition = () => {
                       valuePropName="checked"
                       noStyle
                     >
-                      <Checkbox>{t('tableDefinition.required')}</Checkbox>
+                      <Checkbox>是否自增</Checkbox>
                     </Form.Item>
                     {/* 前缀输入框 - 简化实现，直接显示 */}
                     <Form.Item
@@ -94,7 +94,7 @@ const TableDefinition = () => {
                       noStyle
                     >
                       <Input 
-                        placeholder={t('tableDefinition.columnType')} 
+                        placeholder="前置字符串" 
                         style={{ width: 150, marginLeft: 8 }}
                       />
                     </Form.Item>
