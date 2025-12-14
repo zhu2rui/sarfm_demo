@@ -72,18 +72,27 @@ def serve_index():
 @app.route('/<path:path>')
 def serve_static(path):
     # 根据文件扩展名设置正确的Content-Type
-    from flask import make_response, send_from_directory
+    from flask import make_response, send_from_directory, abort
     import mimetypes
+    import os
     
-    # 获取文件的MIME类型
-    mime_type, _ = mimetypes.guess_type(path)
-    if not mime_type:
-        mime_type = 'application/octet-stream'
-    
-    # 发送文件并设置正确的Content-Type
-    response = make_response(send_from_directory(app.config['FRONTEND_DIST'], path))
-    response.headers['Content-Type'] = f'{mime_type}; charset=utf-8'
-    return response
+    # 检查文件是否存在
+    file_path = os.path.join(app.config['FRONTEND_DIST'], path)
+    if os.path.exists(file_path) and os.path.isfile(file_path):
+        # 获取文件的MIME类型
+        mime_type, _ = mimetypes.guess_type(path)
+        if not mime_type:
+            mime_type = 'application/octet-stream'
+        
+        # 发送文件并设置正确的Content-Type
+        response = make_response(send_from_directory(app.config['FRONTEND_DIST'], path))
+        response.headers['Content-Type'] = f'{mime_type}; charset=utf-8'
+        return response
+    else:
+        # SPA应用处理：所有未匹配的路由都返回index.html，让React Router处理
+        response = make_response(send_from_directory(app.config['FRONTEND_DIST'], 'index.html'))
+        response.headers['Content-Type'] = 'text/html; charset=utf-8'
+        return response
 
 # 用户模型
 class User(db.Model):
