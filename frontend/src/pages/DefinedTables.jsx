@@ -3,6 +3,7 @@ import { Card, List, Button, Space, Input, Modal, Form, message, Popconfirm, Che
 import { EditOutlined, DeleteOutlined, EyeOutlined } from '@ant-design/icons'
 import axios from 'axios'
 import { TableContext } from '../App'
+import { useI18n } from '../i18n/I18nContext'
 
 const DefinedTables = () => {
   const [tables, setTables] = useState([])
@@ -16,6 +17,7 @@ const DefinedTables = () => {
   const [userRole, setUserRole] = useState('member')
   const tableContext = useContext(TableContext)
   const fetchContextTables = tableContext?.fetchTables || (() => {})
+  const { t } = useI18n()
 
   // 获取用户角色
   useEffect(() => {

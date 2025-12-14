@@ -2,11 +2,13 @@ import React, { useState, useContext } from 'react'
 import { Card, Button, Input, Form, Space, message, Checkbox } from 'antd'
 import axios from 'axios'
 import { TableContext } from '../App'
+import { useI18n } from '../i18n/I18nContext'
 
 const TableDefinition = () => {
   const [form] = Form.useForm()
   const tableContext = useContext(TableContext)
   const fetchTables = tableContext?.fetchTables || (() => {})
+  const { t } = useI18n()
   
   // 初始值，包含一列默认列
   const initialValues = {
@@ -23,31 +25,31 @@ const TableDefinition = () => {
       })
       
       if (response.data.code === 200) {
-        message.success('表格结构创建成功')
+        message.success(t('tableDefinition.success'))
         form.resetFields()
         fetchTables() // 刷新侧边栏表格列表
       } else {
         message.error(response.data.message)
       }
     } catch (error) {
-      message.error('创建表格结构失败，请检查网络连接或联系管理员')
+      message.error(t('tableDefinition.success'))
       console.error('Create table error:', error)
     }
   }
 
   return (
-    <Card title="表格定义" style={{ marginBottom: 16 }}>
+    <Card title={t('tableDefinition.title')} style={{ marginBottom: 16 }}>
       <Form 
         layout="vertical" 
         form={form}
         initialValues={initialValues}
         onFinish={handleSubmit}
       >
-        <Form.Item label="总表名" name="tableName" rules={[{ required: true, message: '请输入总表名!' }]}>
-          <Input placeholder="请输入总表名" />
+        <Form.Item label={t('tableDefinition.tableName')} name="tableName" rules={[{ required: true, message: t('tableDefinition.tableNameRequired') }]}>
+          <Input placeholder={t('tableDefinition.tableName')} />
         </Form.Item>
         
-        <Card title="列定义" style={{ marginBottom: 16 }}>
+        <Card title={t('tableDefinition.columnName')} style={{ marginBottom: 16 }}>
           <Form.List name="columns">
             {(fields, { add, remove }) => (
               <>
@@ -56,17 +58,17 @@ const TableDefinition = () => {
                     <Form.Item
                       {...restField}
                       name={[name, 'column_name']}
-                      rules={[{ required: true, message: '请输入列名!' }]}
+                      rules={[{ required: true, message: t('tableDefinition.columnNameRequired') }]}
                       noStyle
                     >
-                      <Input placeholder="列名" style={{ width: 150 }} />
+                      <Input placeholder={t('tableDefinition.columnName')} style={{ width: 150 }} />
                     </Form.Item>
                     <Form.Item
                       {...restField}
                       name={[name, 'data_type']}
                       noStyle
                     >
-                      <Input placeholder="数据类型" style={{ width: 150 }} disabled />
+                      <Input placeholder={t('tableDefinition.columnType')} style={{ width: 150 }} disabled />
                     </Form.Item>
                     <Form.Item
                       {...restField}
@@ -74,7 +76,7 @@ const TableDefinition = () => {
                       valuePropName="checked"
                       noStyle
                     >
-                      <Checkbox>下拉显示</Checkbox>
+                      <Checkbox>{t('tableDefinition.required')}</Checkbox>
                     </Form.Item>
                     {/* 自增功能配置 */}
                     <Form.Item
@@ -83,7 +85,7 @@ const TableDefinition = () => {
                       valuePropName="checked"
                       noStyle
                     >
-                      <Checkbox>启用自增</Checkbox>
+                      <Checkbox>{t('tableDefinition.required')}</Checkbox>
                     </Form.Item>
                     {/* 前缀输入框 - 简化实现，直接显示 */}
                     <Form.Item
@@ -92,18 +94,18 @@ const TableDefinition = () => {
                       noStyle
                     >
                       <Input 
-                        placeholder="自增前缀（可选）" 
+                        placeholder={t('tableDefinition.columnType')} 
                         style={{ width: 150, marginLeft: 8 }}
                       />
                     </Form.Item>
                     <Button danger onClick={() => remove(name)} disabled={fields.length === 1}>
-                      删除
+                      {t('dataManagement.deleteData')}
                     </Button>
                   </Space>
                 ))}
                 <Form.Item>
                   <Button type="dashed" onClick={() => add({ column_name: '', data_type: 'string', dropDown: false, autoIncrement: false, prefix: '' })} block>
-                    + 添加列
+                    {t('tableDefinition.addColumn')}
                   </Button>
                 </Form.Item>
               </>
@@ -113,7 +115,7 @@ const TableDefinition = () => {
         
         <Form.Item>
           <Button type="primary" htmlType="submit" block>
-            保存表格
+            {t('tableDefinition.saveTable')}
           </Button>
         </Form.Item>
       </Form>

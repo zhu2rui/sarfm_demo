@@ -34,6 +34,8 @@ const DataManagement = () => {
     const savedExpandedRowKeys = localStorage.getItem('expandedRowKeys')
     return savedExpandedRowKeys ? JSON.parse(savedExpandedRowKeys) : []
   })
+  // 保留链接状态管理
+  const [keepLinks, setKeepLinks] = useState({})
   
   // 高亮行ID状态，用于动画效果
   const [highlightedRowId, setHighlightedRowId] = useState(null)
@@ -570,12 +572,74 @@ const DataManagement = () => {
     if (record) {
       setIsEditMode(true)
       setCurrentData(record)
-      form.setFieldsValue(record.data)
+      
+      // 初始化保留链接状态
+      const initialKeepLinks = {}
+      
+      // 准备表单数据
+      const formData = {}
+      
+      // 遍历所有列，确保每列都有对应的值
+      selectedTable.columns.forEach(column => {
+        const key = column.column_name
+        const value = record.data[key]
+        
+        // 跳过自增列
+        if (column.autoIncrement) {
+          return
+        }
+        
+        console.log(`[DEBUG] Processing column ${key}, value:`, value);
+        console.log(`[DEBUG] Value type:`, typeof value);
+        
+        let fieldValue = ''
+        let isLink = false
+        
+        // 检查是否为链接对象 { _text: '显示文本', _link: '链接URL' }
+        try {
+          if (typeof value === 'object' && value !== null) {
+            // 尝试获取_text属性，无论是否有_link属性
+            if (value._text !== undefined) {
+              fieldValue = value._text
+              isLink = !!value._link // 只有当有_link属性时才认为是链接
+            } else {
+              // 其他对象类型，转换为字符串
+              fieldValue = JSON.stringify(value) || ''
+              isLink = false
+            }
+          } else {
+            // 非对象类型，直接转换为字符串
+            fieldValue = value !== null && value !== undefined ? String(value) : ''
+            isLink = false
+          }
+        } catch (error) {
+          // 处理任何可能的错误
+          console.error(`[DEBUG] Error processing column ${key}:`, error);
+          fieldValue = value !== null && value !== undefined ? String(value) : ''
+          isLink = false
+        }
+        
+        console.log(`[DEBUG] Processed fieldValue:`, fieldValue, `isLink:`, isLink);
+        
+        // 设置保留链接状态和表单值
+        initialKeepLinks[key] = isLink // 只有链接对象才显示保留链接选项
+        formData[key] = fieldValue // 设置表单默认值
+      })
+      
+      setKeepLinks(initialKeepLinks)
+      
+      console.log(`[DEBUG] Final formData:`, formData);
+      
+      // 直接设置表单值，然后显示模态框
+      form.setFieldsValue(formData)
     } else {
       setIsEditMode(false)
       setCurrentData(null)
+      setKeepLinks({})
       form.resetFields()
     }
+    
+    // 显示模态框
     setIsModalVisible(true)
   }
 
@@ -583,21 +647,67 @@ const DataManagement = () => {
   const handleSubmit = async (values) => {
     if (!selectedTable) return
     
+    // 验证：确保至少有一个字段有内容
+    const hasContent = Object.values(values).some(value => {
+      return value !== null && value !== undefined && value.trim() !== ''
+    })
+    
+    if (!hasContent) {
+      message.warning('请至少输入一个字段的内容')
+      return
+    }
+    
     try {
       let response
       let submitData = { ...values }
       
-      // 在编辑模式下，保留自增列的数据
+      // 在编辑模式下，处理保留链接和自增列
       if (isEditMode && currentData) {
-        // 遍历所有列，找到自增列并保留其原有值
-        if (Array.isArray(selectedTable.columns)) {
-          selectedTable.columns.forEach(column => {
-            if (column.autoIncrement && currentData.data[column.column_name]) {
-              // 保留自增列的原有值
-              submitData[column.column_name] = currentData.data[column.column_name]
+        // 遍历所有列，处理每一列的数据
+        selectedTable.columns.forEach(column => {
+          const key = column.column_name
+          
+          // 跳过自增列
+          if (column.autoIncrement) {
+            // 保留自增列的原有值
+            submitData[key] = currentData.data[key]
+            return
+          }
+          
+          // 检查当前字段是否有原始数据
+          if (!currentData.data[key]) {
+            return
+          }
+          
+          // 获取当前字段的新值
+          const newValue = values[key] !== undefined ? values[key] : currentData.data[key]
+          
+          // 检查当前字段是否为链接对象 { _text: '显示文本', _link: '链接URL' }
+          const isOriginalLinkObject = typeof currentData.data[key] === 'object' && 
+                                      currentData.data[key] !== null && 
+                                      currentData.data[key]._text && 
+                                      currentData.data[key]._link
+          
+          // 处理链接对象
+          if (isOriginalLinkObject) {
+            // 检查是否勾选了保留链接
+            if (keepLinks[key]) {
+              // 勾选了保留链接：将文本框的新值放入链接对象的_text中
+              submitData[key] = {
+                ...currentData.data[key],
+                _text: newValue || currentData.data[key]._text // 使用新值或保留原文本
+              }
+            } else {
+              // 未勾选保留链接：直接把文本框的新值放入数据库，而非再次变成对象
+              submitData[key] = newValue || ''
             }
-          })
-        }
+          }
+          // 处理非链接对象
+          else {
+            // 直接使用新值
+            submitData[key] = newValue
+          }
+        })
         
         // 编辑模式
         response = await axios.put(`/api/v1/tables/${selectedTable.id}/data/${currentData.id}`, {
@@ -678,7 +788,16 @@ const DataManagement = () => {
         // 搜索数据字段
         for (const key in item.data) {
           const value = item.data[key]
-          if (typeof value === 'string' && regex.test(value)) {
+          
+          // 检查是否为链接对象
+          if (typeof value === 'object' && value !== null && value._text) {
+            // 链接对象，检查其_text属性
+            if (regex.test(value._text)) {
+              return true
+            }
+          }
+          // 检查是否为字符串
+          else if (typeof value === 'string' && regex.test(value)) {
             return true
           }
         }
@@ -718,36 +837,31 @@ const DataManagement = () => {
   const highlightText = (text) => {
     const currentState = getCurrentSearchState()
     
-    // 如果是链接对象，返回原始文本或高亮处理后的文本
+    let displayText = ''
+    
+    // 处理链接对象
     if (typeof text === 'object' && text !== null && text._text) {
-      const textStr = text._text
-      if (!currentState.highlightedText) {
-        return textStr
-      }
-      
-      try {
-        const regex = new RegExp(`(${currentState.highlightedText})`, 'gi')
-        return textStr.replace(regex, '<span style="background-color: #fff212; font-weight: 500;">$1</span>')
-      } catch (error) {
-        return textStr
-      }
+      displayText = text._text
+    }
+    // 处理非链接对象
+    else if (typeof text === 'string') {
+      displayText = text
+    }
+    // 处理其他类型
+    else {
+      displayText = text !== null && text !== undefined ? String(text) : ''
     }
     
-    // 如果不是字符串，直接返回
-    if (typeof text !== 'string') {
-      return text
-    }
-    
-    // 普通字符串的高亮处理
+    // 如果没有高亮文本，直接返回
     if (!currentState.highlightedText) {
-      return text
+      return displayText
     }
     
     try {
       const regex = new RegExp(`(${currentState.highlightedText})`, 'gi')
-      return text.replace(regex, '<span style="background-color: #fff212; font-weight: 500;">$1</span>')
+      return displayText.replace(regex, '<span style="background-color: #fff212; font-weight: 500;">$1</span>')
     } catch (error) {
-      return text
+      return displayText
     }
   }
 
@@ -1127,15 +1241,44 @@ const DataManagement = () => {
         return null
       }
       
+      const columnName = column.column_name
+      
+      // 检查当前字段是否有链接
+      const hasLink = isEditMode && currentData && 
+                     currentData.data[columnName] && 
+                     typeof currentData.data[columnName] === 'object' && 
+                     currentData.data[columnName]._link
+      
       return (
-        <Form.Item 
-          key={column.column_name} 
-          label={column.column_name} 
-          name={column.column_name}
-          rules={[{ required: true, message: `请输入${column.column_name}!` }]}
-        >
-          <Input placeholder={`请输入${column.column_name}`} />
-        </Form.Item>
+        <div key={columnName} style={{ marginBottom: 16 }}>
+          <Form.Item 
+            label={columnName} 
+            name={columnName}
+            // 移除必填规则，允许字段为空
+          >
+            {/* 使用Form.Item只包裹Input，确保只有一个子元素 */}
+            <Input 
+              placeholder={`请输入${columnName}`} 
+              style={{ width: '60%', marginRight: 12 }}
+            />
+          </Form.Item>
+          {/* 如果有链接，在Form.Item外部显示保留链接checkbox */}
+          {hasLink && (
+            <div style={{ display: 'inline-flex', alignItems: 'center', verticalAlign: 'middle', marginTop: -28, marginLeft: '15%' }}>
+              <Checkbox
+                checked={keepLinks[columnName]}
+                onChange={(e) => {
+                  setKeepLinks(prev => ({
+                    ...prev,
+                    [columnName]: e.target.checked
+                  }))
+                }}
+                style={{ marginRight: 8 }}
+              />
+              <span>保留链接</span>
+            </div>
+          )}
+        </div>
       )
     }).filter(item => item !== null) // 过滤掉自增列
   }

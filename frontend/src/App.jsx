@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Layout, Menu, Button, Form, Input, Card, Typography, message, Checkbox } from 'antd'
+import { Layout, Menu, Button, Form, Input, Card, Typography, message, Checkbox, Select } from 'antd'
 import { UserOutlined, LockOutlined, DatabaseOutlined, BarChartOutlined, MenuOutlined } from '@ant-design/icons'
 import { BrowserRouter as Router, Routes, Route, Navigate, Link, useNavigate } from 'react-router-dom'
 import axios from 'axios'
@@ -10,6 +10,7 @@ import Reports from './pages/Reports'
 import UserManagement from './pages/UserManagement'
 import ResetPassword from './pages/ResetPassword'
 import ChangePassword from './pages/ChangePassword'
+import { I18nProvider, useI18n } from './i18n/I18nContext'
 
 // 配置axios拦截器
 axios.interceptors.request.use(
@@ -50,7 +51,7 @@ const { Header, Sider, Content } = Layout
 const { Title } = Typography
 
 // 登录页面组件
-const Login = ({ setIsLoggedIn }) => {
+const Login = ({ setIsLoggedIn, t }) => {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [form] = Form.useForm()
@@ -92,13 +93,13 @@ const Login = ({ setIsLoggedIn }) => {
           localStorage.setItem('user', JSON.stringify(response.data.data.user))
           setIsLoggedIn(true)
           console.log('准备显示成功提示: 登录成功')
-          message.success('登录成功')
+          message.success(t('login.loginBtn'))
           console.log('准备跳转到主页面...')
           navigate('/table-definition')
         }
       } else {
         console.log('登录失败分支，准备显示错误信息:', response.data.message)
-        message.error(response.data.message || '登录失败，请检查用户名和密码')
+        message.error(response.data.message || t('login.loginBtn'))
         console.log('登录失败:', response.data.message)
       }
     } catch (error) {
@@ -110,7 +111,7 @@ const Login = ({ setIsLoggedIn }) => {
         console.error('Login error - 响应状态:', error.response.status)
         console.error('Login error - 响应数据:', error.response.data)
         
-        let errorMessage = '登录失败，请检查用户名和密码'
+        let errorMessage = t('login.loginBtn')
         if (error.response.data && error.response.data.message) {
           errorMessage = error.response.data.message
         }
@@ -119,10 +120,10 @@ const Login = ({ setIsLoggedIn }) => {
         console.log('登录失败:', errorMessage)
       } else if (error.request) {
         console.error('Login error - 请求已发送但没有收到响应:', error.request)
-        message.error('网络错误，无法连接到服务器')
+        message.error(t('login.loginBtn'))
       } else {
         console.error('Login error - 请求配置错误:', error.message)
-        message.error('登录请求配置错误')
+        message.error(t('login.loginBtn'))
       }
     } finally {
       console.log('=== 登录流程结束 ===')
@@ -131,7 +132,7 @@ const Login = ({ setIsLoggedIn }) => {
 
   return (
     <div className="login-container" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#f0f2f5' }}>
-      <Card title="实验室库存管理系统" className="login-card" style={{ width: 400 }}>
+      <Card title={t('login.title')} className="login-card" style={{ width: 400 }}>
         <Form
           form={form}
           layout="vertical"
@@ -139,33 +140,33 @@ const Login = ({ setIsLoggedIn }) => {
         >
           <Form.Item
             name="username"
-            rules={[{ required: true, message: '请输入用户名!' }]}
-            label="用户名"
+            rules={[{ required: true, message: t('login.username') + '!' }]}
+            label={t('login.username')}
           >
             <Input
               prefix={<UserOutlined />}
-              placeholder="用户名"
+              placeholder={t('login.username')}
               onChange={(e) => setUsername(e.target.value)}
             />
           </Form.Item>
           <Form.Item
             name="password"
-            rules={[{ required: true, message: '请输入密码!' }]}
-            label="密码"
+            rules={[{ required: true, message: t('login.password') + '!' }]}
+            label={t('login.password')}
           >
             <Input
               prefix={<LockOutlined />}
               type="password"
-              placeholder="密码"
+              placeholder={t('login.password')}
               onChange={(e) => setPassword(e.target.value)}
             />
           </Form.Item>
           <Form.Item name="remember" valuePropName="checked" noStyle>
-            <Checkbox>30天内免登录</Checkbox>
+            <Checkbox>{t('login.remember')}</Checkbox>
           </Form.Item>
           <Form.Item>
             <Button type="primary" htmlType="submit" block>
-              登录
+              {t('login.loginBtn')}
             </Button>
           </Form.Item>
         </Form>
@@ -180,7 +181,7 @@ import { createContext, useContext } from 'react'
 export const TableContext = createContext()
 
 // 主布局组件
-const MainLayout = ({ isLoggedIn, setIsLoggedIn }) => {
+const MainLayout = ({ isLoggedIn, setIsLoggedIn, t, lang, changeLang }) => {
   const [collapsed, setCollapsed] = useState(false)
   const [tables, setTables] = useState([])
   const [selectedTableId, setSelectedTableId] = useState(null)
@@ -273,16 +274,29 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn }) => {
                 }
               }}
             />
-            <Title level={4} style={{ color: 'white', margin: 0, fontSize: '18px' }}>实验室库存管理系统</Title>
+            <Title level={4} style={{ color: 'white', margin: 0, fontSize: '18px' }}>{t('header.systemTitle')}</Title>
           </div>
-          <Button 
-            type="primary" 
-            onClick={handleLogout}
-            size="small"
-            style={{ minWidth: '80px' }}
-          >
-            退出登录
-          </Button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {/* 语言切换 */}
+            <Select
+              value={lang}
+              onChange={changeLang}
+              style={{ width: '100px' }}
+              options={[
+                { value: 'zh', label: '中文' },
+                { value: 'en', label: 'English' }
+              ]}
+              className="language-select"
+            />
+            <Button 
+              type="primary" 
+              onClick={handleLogout}
+              size="small"
+              style={{ minWidth: '80px' }}
+            >
+              {t('header.logout')}
+            </Button>
+          </div>
         </Header>
         <Layout style={{ display: 'flex', flex: 1, minHeight: 0 }}>
           {/* 桌面端侧边栏 */}
@@ -309,22 +323,22 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn }) => {
                 {
                   key: '1',
                   icon: <DatabaseOutlined />,
-                  label: <Link to="/table-definition">表格定义</Link>
+                  label: <Link to="/table-definition">{t('menu.tableDefinition')}</Link>
                 },
                 {
                   key: '2',
                   icon: <DatabaseOutlined />,
-                  label: <Link to="/defined-tables">已定义表格</Link>
+                  label: <Link to="/defined-tables">{t('menu.definedTables')}</Link>
                 },
                 {
                   key: '3',
                   icon: <DatabaseOutlined />,
-                  label: '数据管理',
+                  label: t('menu.dataManagement'),
                   children: tables.length === 0 ? [
                     {
                       key: '3-1',
                       disabled: true,
-                      label: '暂无已定义表格'
+                      label: t('tableDefinition.noTables')
                     }
                   ] : tables.map(table => ({
                     key: `table-${table.id}`,
@@ -336,7 +350,7 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn }) => {
                 {
                   key: '4',
                   icon: <BarChartOutlined />,
-                  label: <Link to="/reports">报表统计</Link>
+                  label: <Link to="/reports">{t('menu.reports')}</Link>
                 },
                 ...(() => {
                   const user = JSON.parse(localStorage.getItem('user'));
@@ -344,7 +358,7 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn }) => {
                     return [{
                       key: '5',
                       icon: <UserOutlined />,
-                      label: <Link to="/user-management">用户管理</Link>
+                      label: <Link to="/user-management">{t('menu.userManagement')}</Link>
                     }];
                   }
                   return [];
@@ -352,11 +366,11 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn }) => {
                 {
                   key: '6',
                   icon: <UserOutlined />,
-                  label: '设置',
+                  label: t('menu.settings'),
                   children: [
                     {
                       key: '6-0',
-                      label: <Link to="/change-password">修改密码</Link>
+                      label: <Link to="/change-password">{t('menu.changePassword')}</Link>
                     },
                     ...(() => {
                       const user = JSON.parse(localStorage.getItem('user'));
@@ -364,7 +378,7 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn }) => {
                         return [
                           {
                             key: '6-1',
-                            label: '导出所有数据',
+                            label: t('menu.exportAllData'),
                             onClick: () => {
                               // 导出所有数据
                               axios.get('/api/v1/export-all-data', { responseType: 'blob' })
@@ -376,17 +390,17 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn }) => {
                                   document.body.appendChild(link);
                                   link.click();
                                   link.remove();
-                                  message.success('数据导出成功');
+                                  message.success(t('dataManagement.successAdd'));
                                 })
                                 .catch(error => {
                                   console.error('Export error:', error);
-                                  message.error('数据导出失败');
+                                  message.error(t('dataManagement.successAdd'));
                                 });
                             }
                           },
                           {
                             key: '6-2',
-                            label: '导入数据',
+                            label: t('menu.importData'),
                             onClick: () => {
                               // 导入数据
                               const input = document.createElement('input');
@@ -405,7 +419,7 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn }) => {
                                   })
                                   .then(response => {
                                     if (response.data.code === 200) {
-                                      message.success('数据导入完成');
+                                      message.success(t('dataManagement.successAdd'));
                                       // 刷新表格列表
                                       fetchTables();
                                     } else {
@@ -414,7 +428,7 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn }) => {
                                   })
                                   .catch(error => {
                                     console.error('Import error:', error);
-                                    message.error('数据导入失败');
+                                    message.error(t('dataManagement.successAdd'));
                                   });
                                 }
                               };
@@ -457,152 +471,151 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn }) => {
           </Sider>
           
           <Layout style={{ padding: '0' }}>
-            {/* 移动端侧边栏 */}
-            <Sider 
-              theme="dark"
-              width="250px"
-              className="mobile-sider"
-              trigger={null}
-              visible={mobileMenuVisible}
-              onClose={() => setMobileMenuVisible(false)}
-              style={{
-                position: 'fixed',
-                top: 64,
-                left: 0,
-                height: 'calc(100vh - 64px)',
-                zIndex: 1001,
-                animation: 'antSlideLeftIn 0.3s ease-out',
-                display: mobileMenuVisible ? 'block' : 'none'
-              }}
-            >
-              <div className="logo" />
-              <Menu theme="dark" mode="inline" items={[
-                {
-                  key: 'm1',
-                  icon: <DatabaseOutlined />,
-                  label: <Link to="/table-definition" onClick={() => setMobileMenuVisible(false)}>表格定义</Link>
-                },
-                {
-                  key: 'm2',
-                  icon: <DatabaseOutlined />,
-                  label: <Link to="/defined-tables" onClick={() => setMobileMenuVisible(false)}>已定义表格</Link>
-                },
-                {
-                  key: 'm3',
-                  icon: <DatabaseOutlined />,
-                  label: '数据管理',
-                  children: tables.length === 0 ? [
-                    {
-                      key: 'm3-1',
-                      disabled: true,
-                      label: '暂无已定义表格'
-                    }
-                  ] : tables.map(table => ({
-                    key: `m-table-${table.id}`,
+            {/* 移动端侧边栏 - 使用条件渲染代替visible属性 */}
+            {mobileMenuVisible && (
+              <Sider 
+                theme="dark"
+                width="250px"
+                className="mobile-sider"
+                trigger={null}
+                style={{
+                  position: 'fixed',
+                  top: 64,
+                  left: 0,
+                  height: 'calc(100vh - 64px)',
+                  zIndex: 1001,
+                  animation: 'antSlideLeftIn 0.3s ease-out'
+                }}
+              >
+                <div className="logo" />
+                <Menu theme="dark" mode="inline" items={[
+                  {
+                    key: 'm1',
                     icon: <DatabaseOutlined />,
-                    label: table.table_name,
-                    onClick: () => handleTableClick(table.id)
-                  }))
-                },
-                {
-                  key: 'm4',
-                  icon: <BarChartOutlined />,
-                  label: <Link to="/reports" onClick={() => setMobileMenuVisible(false)}>报表统计</Link>
-                },
-                ...(() => {
-                  const user = JSON.parse(localStorage.getItem('user'));
-                  if (user && user.role === 'admin') {
-                    return [{
-                      key: 'm5',
-                      icon: <UserOutlined />,
-                      label: <Link to="/user-management" onClick={() => setMobileMenuVisible(false)}>用户管理</Link>
-                    }];
-                  }
-                  return [];
-                })(),
-                {
-                  key: 'm6',
-                  icon: <UserOutlined />,
-                  label: '设置',
-                  style: { marginTop: 'auto' },
-                  children: [
-                    {
-                      key: 'm6-0',
-                      label: <Link to="/change-password" onClick={() => setMobileMenuVisible(false)}>修改密码</Link>
-                    },
-                    ...(() => {
-                      const user = JSON.parse(localStorage.getItem('user'));
-                      if (user && user.role === 'admin') {
-                        return [
-                          {
-                            key: 'm6-1',
-                            label: '导出所有数据',
-                            onClick: () => {
-                              // 导出所有数据
-                              setMobileMenuVisible(false);
-                              axios.get('/api/v1/export-all-data', { responseType: 'blob' })
-                                .then(response => {
-                                  const url = window.URL.createObjectURL(new Blob([response.data]));
-                                  const link = document.createElement('a');
-                                  link.href = url;
-                                  link.setAttribute('download', 'all_data.xlsx');
-                                  document.body.appendChild(link);
-                                  link.click();
-                                  link.remove();
-                                  message.success('数据导出成功');
-                                })
-                                .catch(error => {
-                                  console.error('Export error:', error);
-                                  message.error('数据导出失败');
-                                });
-                            }
-                          },
-                          {
-                            key: 'm6-2',
-                            label: '导入数据',
-                            onClick: () => {
-                              // 导入数据
-                              setMobileMenuVisible(false);
-                              const input = document.createElement('input');
-                              input.type = 'file';
-                              input.accept = '.xlsx, .xls';
-                              input.onchange = (e) => {
-                                const file = e.target.files[0];
-                                if (file) {
-                                  const formData = new FormData();
-                                  formData.append('file', file);
-                                    
-                                  axios.post('/api/v1/import-data', formData, {
-                                    headers: {
-                                      'Content-Type': 'multipart/form-data'
-                                    }
-                                  })
+                    label: <Link to="/table-definition" onClick={() => setMobileMenuVisible(false)}>{t('menu.tableDefinition')}</Link>
+                  },
+                  {
+                    key: 'm2',
+                    icon: <DatabaseOutlined />,
+                    label: <Link to="/defined-tables" onClick={() => setMobileMenuVisible(false)}>{t('menu.definedTables')}</Link>
+                  },
+                  {
+                    key: 'm3',
+                    icon: <DatabaseOutlined />,
+                    label: t('menu.dataManagement'),
+                    children: tables.length === 0 ? [
+                      {
+                        key: 'm3-1',
+                        disabled: true,
+                        label: t('tableDefinition.noTables')
+                      }
+                    ] : tables.map(table => ({
+                      key: `m-table-${table.id}`,
+                      icon: <DatabaseOutlined />,
+                      label: table.table_name,
+                      onClick: () => handleTableClick(table.id)
+                    }))
+                  },
+                  {
+                    key: 'm4',
+                    icon: <BarChartOutlined />,
+                    label: <Link to="/reports" onClick={() => setMobileMenuVisible(false)}>{t('menu.reports')}</Link>
+                  },
+                  ...(() => {
+                    const user = JSON.parse(localStorage.getItem('user'));
+                    if (user && user.role === 'admin') {
+                      return [{
+                        key: 'm5',
+                        icon: <UserOutlined />,
+                        label: <Link to="/user-management" onClick={() => setMobileMenuVisible(false)}>{t('menu.userManagement')}</Link>
+                      }];
+                    }
+                    return [];
+                  })(),
+                  {
+                    key: 'm6',
+                    icon: <UserOutlined />,
+                    label: t('menu.settings'),
+                    style: { marginTop: 'auto' },
+                    children: [
+                      {
+                        key: 'm6-0',
+                        label: <Link to="/change-password" onClick={() => setMobileMenuVisible(false)}>{t('menu.changePassword')}</Link>
+                      },
+                      ...(() => {
+                        const user = JSON.parse(localStorage.getItem('user'));
+                        if (user && user.role === 'admin') {
+                          return [
+                            {
+                              key: 'm6-1',
+                              label: t('menu.exportAllData'),
+                              onClick: () => {
+                                // 导出所有数据
+                                setMobileMenuVisible(false);
+                                axios.get('/api/v1/export-all-data', { responseType: 'blob' })
                                   .then(response => {
-                                    if (response.data.code === 200) {
-                                      message.success('数据导入完成');
-                                      // 刷新表格列表
-                                      fetchTables();
-                                    } else {
-                                      message.error(response.data.message);
-                                    }
+                                    const url = window.URL.createObjectURL(new Blob([response.data]));
+                                    const link = document.createElement('a');
+                                    link.href = url;
+                                    link.setAttribute('download', 'all_data.xlsx');
+                                    document.body.appendChild(link);
+                                    link.click();
+                                    link.remove();
+                                    message.success(t('dataManagement.successAdd'));
                                   })
                                   .catch(error => {
-                                    console.error('Import error:', error);
-                                    message.error('数据导入失败');
+                                    console.error('Export error:', error);
+                                    message.error(t('dataManagement.successAdd'));
                                   });
-                                }
-                              };
-                              input.click();
+                              }
+                            },
+                            {
+                              key: 'm6-2',
+                              label: t('menu.importData'),
+                              onClick: () => {
+                                // 导入数据
+                                setMobileMenuVisible(false);
+                                const input = document.createElement('input');
+                                input.type = 'file';
+                                input.accept = '.xlsx, .xls';
+                                input.onchange = (e) => {
+                                  const file = e.target.files[0];
+                                  if (file) {
+                                    const formData = new FormData();
+                                    formData.append('file', file);
+                                      
+                                    axios.post('/api/v1/import-data', formData, {
+                                      headers: {
+                                        'Content-Type': 'multipart/form-data'
+                                      }
+                                    })
+                                    .then(response => {
+                                      if (response.data.code === 200) {
+                                        message.success(t('dataManagement.successAdd'));
+                                        // 刷新表格列表
+                                        fetchTables();
+                                      } else {
+                                        message.error(response.data.message);
+                                      }
+                                    })
+                                    .catch(error => {
+                                      console.error('Import error:', error);
+                                      message.error(t('dataManagement.successAdd'));
+                                    });
+                                  }
+                                };
+                                input.click();
+                              }
                             }
-                          }
-                        ];
-                      }
-                      return [];
-                    })()
-                  ]
-                }
-              ]} />
-            </Sider>
+                          ];
+                        }
+                        return [];
+                      })()
+                    ]
+                  }
+                ]} />
+              </Sider>
+            )}
             
             <Content
               style={{
@@ -653,6 +666,18 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn }) => {
 // 导出上下文
 const useTableContext = () => useContext(TableContext)
 
+// 创建一个使用useI18n的Login组件包装器
+const LoginWithI18n = (props) => {
+  const { t } = useI18n();
+  return <Login {...props} t={t} />;
+};
+
+// 创建一个使用useI18n的MainLayout组件包装器
+const MainLayoutWithI18n = (props) => {
+  const { t, lang, changeLang } = useI18n();
+  return <MainLayout {...props} t={t} lang={lang} changeLang={changeLang} />;
+};
+
 function App() {
   // 初始状态从localStorage中读取，避免刷新时短暂显示登录页
   const [isLoggedIn, setIsLoggedIn] = useState(() => {
@@ -676,25 +701,27 @@ function App() {
   }, [])
 
   return (
-    <div className="App">
-      <Router>
-        <Routes>
-          <Route path="/login" element={<Login setIsLoggedIn={setIsLoggedIn} />} />
-          {/* 密码重置页面，允许未登录状态访问 */}
-          <Route path="/reset-password" element={<ResetPassword />} />
-          {/* 只有非登录页面才需要重定向检查 */}
-          <Route path="/*" element={
-            <>
-              {isLoggedIn ? (
-                <MainLayout isLoggedIn={isLoggedIn} setIsLoggedIn={setIsLoggedIn} />
-              ) : (
-                <Navigate to="/login" replace />
-              )}
-            </>
-          } />
-        </Routes>
-      </Router>
-    </div>
+    <I18nProvider>
+      <div className="App">
+        <Router>
+          <Routes>
+            <Route path="/login" element={<LoginWithI18n setIsLoggedIn={setIsLoggedIn} />} />
+            {/* 密码重置页面，允许未登录状态访问 */}
+            <Route path="/reset-password" element={<ResetPassword />} />
+            {/* 只有非登录页面才需要重定向检查 */}
+            <Route path="/*" element={
+              <>
+                {isLoggedIn ? (
+                  <MainLayoutWithI18n isLoggedIn={isLoggedIn} setIsLoggedIn={setIsLoggedIn} />
+                ) : (
+                  <Navigate to="/login" replace />
+                )}
+              </>
+            } />
+          </Routes>
+        </Router>
+      </div>
+    </I18nProvider>
   )
 }
 
