@@ -1,6 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react'
-import { Table, Checkbox, Button, message, Modal, Space, Tag, Spin } from 'antd'
-import { DeleteOutlined, LoadingOutlined } from '@ant-design/icons'
+import React, { useState, useEffect, useRef, useContext } from 'react'
+import { Table, Checkbox, Button, message, Modal, Space, Tag, Spin, Dropdown, Menu, Input, Select } from 'antd'
+import { DeleteOutlined, LoadingOutlined, LinkOutlined, EditOutlined, SearchOutlined } from '@ant-design/icons'
+import axios from 'axios'
+import { TableContext } from '../App'
 
 const { confirm } = Modal
 
@@ -15,7 +17,9 @@ const MultiSelectDelete = ({
   showIndex = true,
   pagination = {},
   // 展开行配置
-  expandable = {}
+  expandable = {},
+  // 高亮行ID，用于动画效果
+  highlightedRowId = null
 }) => {
   // 选中的行ID集合
   const [selectedRowKeys, setSelectedRowKeys] = useState([])
@@ -27,6 +31,43 @@ const MultiSelectDelete = ({
   const [columnWidths, setColumnWidths] = useState({})
   // 表格容器引用
   const tableRef = useRef(null)
+  // 表格滚动容器引用
+  const tableContainerRef = useRef(null)
+  // 鼠标拖动相关状态
+  const isDragging = useRef(false)
+  const startX = useRef(0)
+  const scrollLeft = useRef(0)
+  // 右键菜单相关状态
+  const [contextMenuVisible, setContextMenuVisible] = useState(false)
+  const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 })
+  const [selectedCellValue, setSelectedCellValue] = useState('')
+  const [selectedCellInfo, setSelectedCellInfo] = useState({ record: null, column: null })
+  const [isMobileLongPress, setIsMobileLongPress] = useState(false)
+  const longPressTimer = useRef(null)
+  // 链接网页功能相关状态
+  const [linkModalVisible, setLinkModalVisible] = useState(false)
+  const [linkUrl, setLinkUrl] = useState('')
+  // 保存当前正在编辑链接的单元格信息
+  const [currentEditingLink, setCurrentEditingLink] = useState({ record: null, column: null })
+  
+  // 链接到表格功能相关状态
+  const [linkToTableModalVisible, setLinkToTableModalVisible] = useState(false)
+  const [tablesList, setTablesList] = useState([])
+  const [selectedTargetTable, setSelectedTargetTable] = useState(null)
+  const [targetTableData, setTargetTableData] = useState([])
+  const [targetTableColumns, setTargetTableColumns] = useState([])
+  const [selectedTargetRow, setSelectedTargetRow] = useState(null)
+  const [tablesLoading, setTablesLoading] = useState(false)
+  const [targetTableLoading, setTargetTableLoading] = useState(false)
+  // 分页相关状态
+  const [targetTableCurrentPage, setTargetTableCurrentPage] = useState(1)
+  const [targetTablePageSize, setTargetTablePageSize] = useState(20)
+  const [targetTableTotal, setTargetTableTotal] = useState(0)
+  
+  // 使用TableContext获取表格数据
+  const tableContext = useContext(TableContext)
+  const tables = tableContext?.tables || []
+  const fetchTables = tableContext?.fetchTables || (() => {})
   
   // 更新数据索引映射
   useEffect(() => {
@@ -36,6 +77,609 @@ const MultiSelectDelete = ({
     })
     dataIndexMap.current = map
   }, [dataSource, rowKey])
+  
+  // 获取表格列表
+  const fetchTablesList = async () => {
+    try {
+      setTablesLoading(true)
+      // 如果上下文中没有表格数据，直接从API获取
+      if (tables.length === 0) {
+        const response = await axios.get('/api/v1/tables')
+        if (response.data.code === 200) {
+          setTablesList(response.data.data)
+        } else {
+          message.error(response.data.message)
+          setTablesList([])
+        }
+      } else {
+        // 使用上下文中的表格数据
+        setTablesList(tables)
+      }
+    } catch (error) {
+      console.error('获取表格列表失败:', error)
+      message.error('获取表格列表失败，请重试')
+      setTablesList([])
+    } finally {
+      setTablesLoading(false)
+    }
+  }
+  
+  // 获取目标表格数据
+  const fetchTargetTableData = async (tableId, page = 1, pageSize = 20) => {
+    try {
+      setTargetTableLoading(true)
+      
+      // 获取目标表格详情，包括列配置
+      const tableDetailResponse = await axios.get(`/api/v1/tables/${tableId}`)
+      let tableColumns = []
+      if (tableDetailResponse.data.code === 200) {
+        tableColumns = tableDetailResponse.data.data.columns || []
+        setTargetTableColumns(tableColumns)
+      }
+      
+      // 获取目标表格数据
+      const dataResponse = await axios.get(`/api/v1/tables/${tableId}/data`, {
+        params: {
+          page,
+          per_page: pageSize
+        }
+      })
+      
+      if (dataResponse.data.code === 200) {
+        setTargetTableData(dataResponse.data.data.items)
+        setTargetTableTotal(dataResponse.data.data.total)
+        setTargetTableCurrentPage(page)
+        setTargetTablePageSize(pageSize)
+      } else {
+        message.error(dataResponse.data.message)
+        setTargetTableData([])
+        setTargetTableTotal(0)
+      }
+    } catch (error) {
+      console.error('获取目标表格数据失败:', error)
+      message.error('获取目标表格数据失败，请重试')
+      setTargetTableData([])
+      setTargetTableTotal(0)
+    } finally {
+      setTargetTableLoading(false)
+    }
+  }
+  
+  // 清除长按定时器
+  useEffect(() => {
+    return () => {
+      if (longPressTimer.current) {
+        clearTimeout(longPressTimer.current)
+      }
+    }
+  }, [])
+  
+  // 添加PC端鼠标拖动平移表格功能
+  useEffect(() => {
+    const handleMouseDown = (e) => {
+      // 只在PC端且拖动容器存在时启用拖动
+      if (tableContainerRef.current && e.button === 0) { // 只响应左键
+        // 检查表格是否可滚动
+        const container = tableContainerRef.current
+        if (container.scrollWidth > container.clientWidth) {
+          isDragging.current = true
+          startX.current = e.pageX - container.offsetLeft
+          scrollLeft.current = container.scrollLeft
+          container.style.cursor = 'grabbing'
+          e.preventDefault()
+        }
+      }
+    }
+    
+    const handleMouseMove = (e) => {
+      if (!isDragging.current || !tableContainerRef.current) return
+      
+      e.preventDefault()
+      const x = e.pageX - tableContainerRef.current.offsetLeft
+      const walk = (x - startX.current) * 1.5 // 拖动速度
+      tableContainerRef.current.scrollLeft = scrollLeft.current - walk
+    }
+    
+    const handleMouseUp = () => {
+      isDragging.current = false
+      if (tableContainerRef.current) {
+        tableContainerRef.current.style.cursor = 'grab'
+      }
+    }
+    
+    // 添加全局事件监听，确保鼠标移动时即使光标离开容器也能继续拖动
+    const handleGlobalMouseUp = () => {
+      isDragging.current = false
+      if (tableContainerRef.current) {
+        tableContainerRef.current.style.cursor = 'grab'
+      }
+    }
+    
+    const handleGlobalMouseMove = (e) => {
+      if (!isDragging.current || !tableContainerRef.current) return
+      
+      e.preventDefault()
+      const container = tableContainerRef.current
+      const x = e.pageX - container.offsetLeft
+      const walk = (x - startX.current) * 1.5 // 拖动速度
+      container.scrollLeft = scrollLeft.current - walk
+    }
+    
+    // 添加事件监听
+    if (tableContainerRef.current) {
+      const container = tableContainerRef.current
+      // 设置初始鼠标样式
+      container.style.cursor = 'grab'
+      
+      // 添加本地事件监听
+      container.addEventListener('mousedown', handleMouseDown)
+      container.addEventListener('mousemove', handleMouseMove)
+      container.addEventListener('mouseup', handleMouseUp)
+      
+      // 添加全局事件监听
+      document.addEventListener('mouseup', handleGlobalMouseUp)
+      document.addEventListener('mousemove', handleGlobalMouseMove)
+    }
+    
+    // 清理事件监听
+    return () => {
+      if (tableContainerRef.current) {
+        const container = tableContainerRef.current
+        // 移除本地事件监听
+        container.removeEventListener('mousedown', handleMouseDown)
+        container.removeEventListener('mousemove', handleMouseMove)
+        container.removeEventListener('mouseup', handleMouseUp)
+      }
+      
+      // 移除全局事件监听
+      document.removeEventListener('mouseup', handleGlobalMouseUp)
+      document.removeEventListener('mousemove', handleGlobalMouseMove)
+    }
+  }, [tableContainerRef])
+  
+  // 处理链接到表格
+  const handleLinkToTable = () => {
+    // 保存当前编辑的单元格信息
+    const { record, column } = selectedCellInfo
+    setCurrentEditingLink({ record, column })
+    
+    // 清空之前的选择
+    setSelectedTargetTable(null)
+    setTargetTableData([])
+    setSelectedTargetRow(null)
+    
+    // 关闭右键菜单
+    setContextMenuVisible(false)
+    setIsMobileLongPress(false)
+    
+    // 打开链接到表格的模态框
+    setLinkToTableModalVisible(true)
+    
+    // 加载表格列表
+    fetchTablesList()
+  }
+  
+  // 处理链接到网页
+  const handleLinkToWeb = () => {
+    // 只保存必要的信息，避免循环引用
+    const { record, column } = selectedCellInfo
+    const safeRecord = {
+      [rowKey]: record[rowKey],
+      table_id: record.table_id,
+      data: record.data
+    }
+    setCurrentEditingLink({ record: safeRecord, column })
+    setLinkModalVisible(true)
+    setLinkUrl('') // 重置输入框
+    setContextMenuVisible(false)
+    setIsMobileLongPress(false)
+  }
+  
+  // 处理链接保存
+  const handleLinkSave = async () => {
+    if (!linkUrl.trim()) {
+      message.error('请输入有效的网址')
+      return
+    }
+    
+    // 验证网址格式
+    let finalUrl = linkUrl
+    try {
+      new URL(finalUrl)
+    } catch (e) {
+      // 如果不是完整URL，尝试添加https://前缀
+      try {
+        new URL(`https://${linkUrl}`)
+        finalUrl = `https://${linkUrl}`
+      } catch (e) {
+        message.error('请输入有效的网址格式')
+        return
+      }
+    }
+    
+    // 获取当前正在编辑的记录和列信息
+    const { record, column } = currentEditingLink
+    if (!record || !column) {
+      message.error('无效的编辑状态')
+      return
+    }
+    
+    try {
+      // 获取必要的ID信息，确保使用基本类型
+      const recordId = String(record[rowKey])
+      const tableId = String(record.table_id)
+      
+      // 直接使用selectedCellInfo中的column，避免使用可能有循环引用的column对象
+      const originalColumn = selectedCellInfo.column
+      if (!originalColumn) {
+        message.error('无效的列信息')
+        return
+      }
+      
+      // 获取列名：确保只使用字符串
+      let columnKey = originalColumn.key || ''
+      if (!columnKey && originalColumn.dataIndex) {
+        if (Array.isArray(originalColumn.dataIndex) && originalColumn.dataIndex.length > 1) {
+          // 对于嵌套数据索引，如['data', 'column_name']，取第二个元素
+          columnKey = originalColumn.dataIndex[1]
+        } else if (typeof originalColumn.dataIndex === 'string') {
+          // 对于直接字符串索引，直接使用
+          columnKey = originalColumn.dataIndex
+        } else {
+          // 对于其他情况，使用列标题作为备选
+          columnKey = originalColumn.title
+        }
+      }
+      
+      // 确保columnKey是字符串
+      columnKey = String(columnKey)
+      
+      // 创建一个全新的数据对象，避免继承任何循环引用
+      const newData = {}
+      
+      // 复制现有数据，确保只复制基本类型
+      if (typeof record.data === 'object' && record.data !== null) {
+        for (const [key, value] of Object.entries(record.data)) {
+          // 只复制基本类型或简单对象
+          if (value === null || typeof value !== 'object') {
+            newData[key] = value
+          } else if (typeof value === 'object' && ('_text' in value && '_link' in value)) {
+            // 如果已经是链接数据，保留
+            newData[key] = { ...value }
+          } else {
+            // 对于其他对象，转换为字符串
+            newData[key] = String(value)
+          }
+        }
+      }
+      
+      // 使用特殊格式保存链接信息：只使用基本类型
+      newData[columnKey] = {
+        _text: String(selectedCellValue),
+        _link: String(finalUrl)
+      }
+      
+      // 构建API URL
+      const apiUrl = `/api/v1/tables/${tableId}/data/${recordId}`
+      
+      // 构建请求头
+      const headers = {
+        'Content-Type': 'application/json'
+      }
+      
+      // 添加认证token
+      const token = localStorage.getItem('token')
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`
+      }
+      
+      // 构建请求体，确保只包含基本类型
+      const requestBody = {
+        data: newData
+      }
+      
+      // 使用fetch API发送请求
+      const response = await fetch(apiUrl, {
+        method: 'PUT',
+        headers: headers,
+        body: JSON.stringify(requestBody)
+      })
+      
+      // 检查响应状态
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      
+      // 解析响应数据
+      const result = await response.json()
+      
+      if (result.code === 200) {
+        message.success('链接设置成功')
+        setLinkModalVisible(false)
+        
+        // 刷新页面获取最新数据
+        window.location.reload()
+      } else {
+        message.error(result.message || '链接设置失败')
+      }
+    } catch (error) {
+      console.error('Error saving link:', error)
+      message.error('链接设置失败，请检查网络连接')
+    }
+  }
+  
+  // 处理链接取消
+  const handleLinkCancel = () => {
+    setLinkModalVisible(false)
+  }
+  
+  // 处理取消链接
+  const handleUnlink = async () => {
+    // 获取当前正在编辑的记录和列信息
+    const { record, column } = selectedCellInfo
+    if (!record || !column) {
+      message.error('无效的编辑状态')
+      return
+    }
+    
+    try {
+      // 获取必要的ID信息，确保使用基本类型
+      const recordId = String(record[rowKey])
+      const tableId = String(record.table_id)
+      
+      // 直接使用selectedCellInfo中的column，避免使用可能有循环引用的column对象
+      const originalColumn = selectedCellInfo.column
+      if (!originalColumn) {
+        message.error('无效的列信息')
+        return
+      }
+      
+      // 获取列名：确保只使用字符串
+      let columnKey = originalColumn.key || ''
+      if (!columnKey && originalColumn.dataIndex) {
+        if (Array.isArray(originalColumn.dataIndex) && originalColumn.dataIndex.length > 1) {
+          // 对于嵌套数据索引，如['data', 'column_name']，取第二个元素
+          columnKey = originalColumn.dataIndex[1]
+        } else if (typeof originalColumn.dataIndex === 'string') {
+          // 对于直接字符串索引，直接使用
+          columnKey = originalColumn.dataIndex
+        } else {
+          // 对于其他情况，使用列标题作为备选
+          columnKey = originalColumn.title
+        }
+      }
+      
+      // 确保columnKey是字符串
+      columnKey = String(columnKey)
+      
+      // 创建一个全新的数据对象，避免继承任何循环引用
+      const newData = { ...record.data }
+      
+      // 对于链接对象，只保留文本部分，移除链接信息
+      if (typeof newData[columnKey] === 'object' && newData[columnKey] !== null && newData[columnKey]._text) {
+        newData[columnKey] = newData[columnKey]._text
+      }
+      
+      // 构建API URL
+      const apiUrl = `/api/v1/tables/${tableId}/data/${recordId}`
+      
+      // 构建请求头
+      const headers = {
+        'Content-Type': 'application/json'
+      }
+      
+      // 添加认证token
+      const token = localStorage.getItem('token')
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`
+      }
+      
+      // 构建请求体，确保只包含基本类型
+      const requestBody = {
+        data: newData
+      }
+      
+      // 使用fetch API发送请求
+      const response = await fetch(apiUrl, {
+        method: 'PUT',
+        headers: headers,
+        body: JSON.stringify(requestBody)
+      })
+      
+      // 检查响应状态
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      
+      // 解析响应数据
+      const result = await response.json()
+      
+      if (result.code === 200) {
+        message.success('取消链接成功')
+        setContextMenuVisible(false)
+        setIsMobileLongPress(false)
+        
+        // 刷新页面获取最新数据
+        window.location.reload()
+      } else {
+        message.error(result.message || '取消链接失败')
+      }
+    } catch (error) {
+      console.error('Error unlinking:', error)
+      message.error('取消链接失败，请检查网络连接')
+    }
+  }
+  
+  // 处理链接到表格保存
+  const handleLinkToTableSave = async () => {
+    // 获取当前正在编辑的记录和列信息
+    const { record, column } = currentEditingLink
+    if (!record || !column) {
+      message.error('无效的编辑状态')
+      return
+    }
+    
+    try {
+      // 获取必要的ID信息，确保使用基本类型
+      const recordId = String(record[rowKey])
+      const tableId = String(record.table_id)
+      
+      // 获取列名：确保只使用字符串
+      let columnKey = column.key || ''
+      if (!columnKey && column.dataIndex) {
+        if (Array.isArray(column.dataIndex) && column.dataIndex.length > 1) {
+          // 对于嵌套数据索引，如['data', 'column_name']，取第二个元素
+          columnKey = column.dataIndex[1]
+        } else if (typeof column.dataIndex === 'string') {
+          // 对于直接字符串索引，直接使用
+          columnKey = column.dataIndex
+        } else {
+          // 对于其他情况，使用列标题作为备选
+          columnKey = column.title
+        }
+      }
+      
+      // 确保columnKey是字符串
+      columnKey = String(columnKey)
+      
+      // 获取当前单元格的值
+      let currentValue = record.data[columnKey]
+      
+      // 获取当前显示文本
+      let displayText
+      if (typeof currentValue === 'object' && currentValue !== null && currentValue._text) {
+        displayText = currentValue._text
+      } else {
+        displayText = String(currentValue)
+      }
+      
+      // 创建链接对象，格式为 { _text: '显示文本', _link: '链接信息' }
+      // 链接信息格式：table:{targetTableId}:{targetRowId}
+      const linkObject = {
+        _text: displayText,
+        _link: `table:${selectedTargetTable}:${selectedTargetRow}`
+      }
+      
+      // 创建一个全新的数据对象，避免继承任何循环引用
+      const newData = { ...record.data }
+      newData[columnKey] = linkObject
+      
+      // 构建API URL
+      const apiUrl = `/api/v1/tables/${tableId}/data/${recordId}`
+      
+      // 构建请求头
+      const headers = {
+        'Content-Type': 'application/json'
+      }
+      
+      // 添加认证token
+      const token = localStorage.getItem('token')
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`
+      }
+      
+      // 构建请求体，确保只包含基本类型
+      const requestBody = {
+        data: newData
+      }
+      
+      // 使用fetch API发送请求
+      const response = await fetch(apiUrl, {
+        method: 'PUT',
+        headers: headers,
+        body: JSON.stringify(requestBody)
+      })
+      
+      // 检查响应状态
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      
+      // 解析响应数据
+      const result = await response.json()
+      
+      if (result.code === 200) {
+        message.success('链接到表格成功')
+        // 关闭模态框
+        setLinkToTableModalVisible(false)
+        // 刷新页面获取最新数据
+        window.location.reload()
+      } else {
+        message.error(result.message || '链接到表格失败')
+      }
+    } catch (error) {
+      console.error('Error linking to table:', error)
+      message.error('链接到表格失败，请检查网络连接')
+    }
+  }
+  
+  // 处理链接到表格取消
+  const handleLinkToTableCancel = () => {
+    setLinkToTableModalVisible(false)
+  }
+  
+  // 右键菜单内容
+  const contextMenuItems = [
+    {
+      label: '链接到表格',
+      key: 'link-to-table',
+      icon: <LinkOutlined />,
+      onClick: handleLinkToTable
+    },
+    {
+      label: '链接到网页',
+      key: 'link-to-web',
+      icon: <EditOutlined />,
+      onClick: handleLinkToWeb
+    },
+    {
+      label: '取消链接',
+      key: 'unlink',
+      icon: <LinkOutlined />,
+      onClick: handleUnlink,
+      // 只有当selectedCellValue是对象且包含_link属性时才显示
+      disabled: !(typeof selectedCellValue === 'object' && selectedCellValue !== null && selectedCellValue._link)
+    }
+  ]
+  
+  // 处理右键点击事件
+  const handleContextMenu = (e, value, record, column) => {
+    e.preventDefault()
+    setSelectedCellValue(value)
+    setSelectedCellInfo({ record, column })
+    setContextMenuPosition({ x: e.clientX, y: e.clientY })
+    setContextMenuVisible(true)
+  }
+  
+  // 处理长按开始
+  const handleLongPressStart = (e, value, record, column) => {
+    setSelectedCellValue(value)
+    setSelectedCellInfo({ record, column })
+    longPressTimer.current = setTimeout(() => {
+      setIsMobileLongPress(true)
+    }, 500) // 500ms 长按触发
+  }
+  
+  // 处理长按结束
+  const handleLongPressEnd = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current)
+    }
+  }
+  
+  // 处理点击事件，关闭菜单
+  const handleClick = () => {
+    setContextMenuVisible(false)
+    setIsMobileLongPress(false)
+  }
+  
+  // 添加全局点击事件监听，用于关闭菜单
+  useEffect(() => {
+    document.addEventListener('click', handleClick)
+    return () => {
+      document.removeEventListener('click', handleClick)
+    }
+  }, [])
   
   // 计算文本宽度的辅助函数
   const getTextWidth = (text) => {
@@ -63,7 +707,12 @@ const MultiSelectDelete = ({
     
     let text
     if (typeof value === 'object') {
-      text = JSON.stringify(value)
+      // 如果是包含链接信息的对象 { _text: '原始文本', _link: '链接URL' }
+      if (value._text && value._link) {
+        text = String(value._text)
+      } else {
+        text = JSON.stringify(value)
+      }
     } else {
       text = String(value)
     }
@@ -276,6 +925,8 @@ const MultiSelectDelete = ({
     minWidth: showIndex ? 32 : 24,
     maxWidth: 36,
     align: 'center',
+    // 选择列不需要调整宽度
+    resizable: false,
     render: (text, record) => {
       const isSelected = selectedRowKeys.includes(record[rowKey])
       return (
@@ -359,6 +1010,82 @@ const MultiSelectDelete = ({
                     value = value[key];
                   }
                   
+                  // 处理值和链接信息
+                  let displayValue = value !== null && value !== undefined ? value : '-';
+                  let finalContent = displayValue;
+                  let valueForEvent = displayValue;
+                  
+                  // 检查数据是否包含链接信息
+                  if (typeof displayValue === 'object' && displayValue !== null) {
+                    // 如果数据是包含链接信息的对象 { _text: '原始文本', _link: '链接URL' }
+                    if (displayValue._text && displayValue._link) {
+                      valueForEvent = displayValue._text;
+                      
+                      // 检查链接是否为表格链接
+                      const isTableLink = displayValue._link.startsWith('table:');
+                      
+                      if (isTableLink) {
+                        // 处理表格链接，格式：table:{targetTableId}:{targetRowId}
+                        finalContent = (
+                          <a
+                            href="#"
+                            onClick={(e) => {
+                              e.preventDefault(); // 阻止默认的href跳转
+                              const [, targetTableId, targetRowId] = displayValue._link.split(':');
+                              if (targetTableId && targetRowId) {
+                                // 跳转到目标表格
+                                localStorage.setItem('selectedTableId', targetTableId);
+                                // 保存需要展开的行ID和目标表格ID
+                                localStorage.setItem('autoExpandInfo', JSON.stringify({
+                                  tableId: parseInt(targetTableId),
+                                  rowId: parseInt(targetRowId)
+                                }));
+                                // 刷新页面
+                                window.location.reload();
+                              }
+                            }}
+                            style={{
+                              color: '#1890ff',
+                              textDecoration: 'underline',
+                              cursor: 'pointer',
+                              display: 'inline-block',
+                              width: '100%',
+                              boxSizing: 'border-box',
+                              wordBreak: 'break-word',
+                              overflow: 'hidden'
+                            }}
+                          >
+                            {displayValue._text}
+                          </a>
+                        );
+                      } else {
+                        // 处理普通网页链接
+                        finalContent = (
+                          <a
+                            href={displayValue._link}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              color: '#1890ff',
+                              textDecoration: 'underline',
+                              cursor: 'pointer',
+                              display: 'inline-block',
+                              width: '100%',
+                              boxSizing: 'border-box',
+                              wordBreak: 'break-word',
+                              overflow: 'hidden'
+                            }}
+                          >
+                            {displayValue._text}
+                          </a>
+                        );
+                      }
+                    }
+                  } else if (typeof displayValue === 'string') {
+                    // 如果是普通字符串，直接使用
+                    valueForEvent = displayValue;
+                  }
+                  
                   return (
                     <tr key={column.key || column.dataIndex} style={{ 
                       borderBottom: '1px solid #f0f0f0',
@@ -381,7 +1108,24 @@ const MultiSelectDelete = ({
                         textAlign: 'left',
                         wordBreak: 'break-word'
                       }}>
-                        {value !== null && value !== undefined ? value : '-'} 
+                        <div
+                          onContextMenu={(e) => {
+                            // 传递原始value给事件处理函数，确保selectedCellValue是对象
+                            handleContextMenu(e, value, record, column)
+                          }}
+                          onTouchStart={(e) => {
+                            // 传递原始value给事件处理函数，确保selectedCellValue是对象
+                            handleLongPressStart(e, value, record, column)
+                          }}
+                          onTouchEnd={handleLongPressEnd}
+                          onTouchCancel={handleLongPressEnd}
+                          style={{ 
+                            cursor: typeof finalContent === 'object' && finalContent?._link ? 'pointer' : 'default',
+                            userSelect: 'none'
+                          }}
+                        >
+                          {finalContent}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -409,7 +1153,13 @@ const MultiSelectDelete = ({
       const calculatedWidth = columnWidths[columnKey]
       
       // 创建副本以避免修改原配置
-      let newColumn = { ...column }
+      let newColumn = { 
+        ...column,
+        // 添加列宽拖动功能
+        resizable: true,
+        // 应用保存的列宽
+        width: calculatedWidth || column.width
+      }
       
       // 检查是否为创建时间列，只显示日期
       const isCreateTimeColumn = [
@@ -419,26 +1169,204 @@ const MultiSelectDelete = ({
         '创建时间', '创建日期', '日期'
       ].includes(column.title)
       
-      if (isCreateTimeColumn) {
-        // 保存原始render函数
-        const originalRender = column.render
+      // 保存原始render函数
+      const originalRender = column.render
+      
+      // 重写render函数，添加右键菜单和长按功能
+      newColumn.render = (text, record) => {
+        let displayContent = text
+        let value = text
         
-        // 重写render函数，格式化日期
-        newColumn.render = (text, record) => {
-          let displayText = text
-          
-          // 如果有原始render函数，先调用它
-          if (originalRender) {
-            const rendered = originalRender(text, record)
-            if (rendered && typeof rendered === 'string') {
-              displayText = rendered
-            }
+        // 获取实际值
+        let actualValue = text
+        if (Array.isArray(column.dataIndex) && column.dataIndex.length > 1) {
+          // 对于嵌套数据索引，如['data', 'column_name']，获取具体列值
+          let tempValue = record
+          for (const key of column.dataIndex) {
+            if (tempValue === null || tempValue === undefined) break
+            tempValue = tempValue[key]
           }
-          
-          // 格式化日期，只显示年月日
-          return formatDateOnly(displayText)
+          actualValue = tempValue
+        } else if (column.dataIndex) {
+          // 对于直接数据索引，直接获取值
+          actualValue = record[column.dataIndex]
         }
         
+        // 保存用于事件处理的实际值
+        let valueForEvent = actualValue
+        // 如果是链接对象，只使用文本部分
+        if (typeof actualValue === 'object' && actualValue !== null && actualValue._text) {
+          valueForEvent = actualValue._text
+        }
+        
+        // 如果有原始render函数，先调用它
+        if (originalRender) {
+          const rendered = originalRender(text, record)
+          if (rendered && typeof rendered === 'string') {
+            displayContent = rendered
+            valueForEvent = rendered
+          } else if (rendered && React.isValidElement(rendered)) {
+            // 如果是React元素，将其作为子元素
+            displayContent = rendered
+          } else if (typeof rendered === 'object' && rendered !== null) {
+            // 如果是对象，可能是链接对象，直接使用
+            displayContent = rendered
+            // 更新valueForEvent，确保是文本
+            if (rendered._text) {
+              valueForEvent = rendered._text
+            } else {
+              valueForEvent = String(rendered)
+            }
+          }
+        } else {
+          // 如果没有原始render函数，处理actualValue
+          if (typeof actualValue === 'object' && actualValue !== null) {
+            // 如果是链接对象，直接使用整个对象，以便后续处理
+            if (actualValue._text && actualValue._link) {
+              displayContent = actualValue
+              valueForEvent = actualValue._text
+            } else {
+              // 如果是普通对象，转换为字符串
+              displayContent = String(actualValue)
+              valueForEvent = String(actualValue)
+            }
+          } else {
+            // 如果是基本类型，直接使用
+            displayContent = actualValue
+            valueForEvent = String(actualValue)
+          }
+        }
+        
+        // 格式化日期，只显示年月日
+        if (isCreateTimeColumn) {
+          if (typeof displayContent === 'string') {
+            displayContent = formatDateOnly(displayContent)
+          } else if (typeof displayContent === 'object' && displayContent?._text) {
+            displayContent = {
+              ...displayContent,
+              _text: formatDateOnly(displayContent._text)
+            }
+          }
+        }
+        
+        // 检查数据是否包含链接信息
+        let finalContent = displayContent
+        
+        // 处理链接信息
+        if (typeof displayContent === 'object' && displayContent !== null) {
+          // 如果是React元素，直接使用
+          if (React.isValidElement(displayContent)) {
+            finalContent = displayContent
+          } else if (displayContent._text && displayContent._link) {
+            // 如果数据是包含链接信息的对象 { _text: '原始文本', _link: '链接URL' }
+            valueForEvent = displayContent._text
+            
+            // 检查链接是否为表格链接
+            const isTableLink = displayContent._link.startsWith('table:');
+            
+            if (isTableLink) {
+              // 处理表格链接，格式：table:{targetTableId}:{targetRowId}
+              finalContent = (
+                <a
+                  href="#"
+                    onClick={(e) => {
+                      e.preventDefault(); // 阻止默认的href跳转
+                      const [, targetTableId, targetRowId] = displayContent._link.split(':');
+                      if (targetTableId && targetRowId) {
+                        // 跳转到目标表格
+                        localStorage.setItem('selectedTableId', targetTableId);
+                        // 保存需要展开的行ID和目标表格ID
+                        localStorage.setItem('autoExpandInfo', JSON.stringify({
+                          tableId: parseInt(targetTableId),
+                          rowId: parseInt(targetRowId)
+                        }));
+                        // 刷新页面
+                        window.location.reload();
+                      }
+                    }}
+                  style={{
+                    color: '#1890ff',
+                    textDecoration: 'underline',
+                    cursor: 'pointer',
+                    display: 'inline-block',
+                    width: '100%',
+                    boxSizing: 'border-box',
+                    wordBreak: 'break-word',
+                    overflow: 'hidden',
+                    whiteSpace: 'normal',
+                    lineHeight: '1.4'
+                  }}
+                >
+                  {displayContent._text}
+                </a>
+              );
+            } else {
+              // 处理普通网页链接
+              finalContent = (
+                <a
+                  href={displayContent._link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    color: '#1890ff',
+                    textDecoration: 'underline',
+                    cursor: 'pointer',
+                    display: 'inline-block',
+                    width: '100%',
+                    boxSizing: 'border-box',
+                    wordBreak: 'break-word',
+                    overflow: 'hidden',
+                    whiteSpace: 'normal',
+                    lineHeight: '1.4'
+                  }}
+                >
+                  {displayContent._text}
+                </a>
+              );
+            }
+          } else {
+            // 如果是普通对象，转换为字符串
+            valueForEvent = String(displayContent)
+            finalContent = String(displayContent)
+          }
+        } else if (displayContent === null || displayContent === undefined) {
+          // 如果是null或undefined，显示空字符串
+          valueForEvent = '-'
+          finalContent = '-'
+        }
+        
+        // 添加右键菜单和长按功能
+        return (
+          <div
+            onContextMenu={(e) => {
+              // 传递原始actualValue给事件处理函数，确保selectedCellValue是对象
+              handleContextMenu(e, actualValue, record, column)
+            }}
+            onTouchStart={(e) => {
+              // 传递原始actualValue给事件处理函数，确保selectedCellValue是对象
+              handleLongPressStart(e, actualValue, record, column)
+            }}
+            onTouchEnd={handleLongPressEnd}
+            onTouchCancel={handleLongPressEnd}
+            style={{ 
+              cursor: typeof displayContent === 'object' && displayContent?._link ? 'pointer' : 'default',
+              userSelect: 'none',
+              // 确保整个单元格都能响应事件
+              width: '100%',
+              height: '100%',
+              display: 'inline-block',
+              // 确保内容居中
+              textAlign: 'left',
+              // 确保内容能正确换行
+              wordBreak: 'break-word'
+            }}
+          >
+            {finalContent}
+          </div>
+        )
+      }
+      
+      if (isCreateTimeColumn) {
         // 应用动态计算的宽度，不再固定
         if (calculatedWidth) {
           newColumn.width = calculatedWidth
@@ -501,6 +1429,250 @@ const MultiSelectDelete = ({
         </div>
       )}
       
+      {/* 右键菜单 */}
+      <Dropdown
+        menu={{ items: contextMenuItems }}
+        open={contextMenuVisible}
+        onOpenChange={setContextMenuVisible}
+        trigger={['contextMenu']}
+        placement="bottomLeft"
+        getPopupContainer={() => document.body}
+        style={{
+          position: 'fixed',
+          left: contextMenuPosition.x,
+          top: contextMenuPosition.y,
+          zIndex: 10000
+        }}
+      >
+        {/* 透明的触发元素，用于定位 */}
+        <div
+          style={{
+            position: 'fixed',
+            left: contextMenuPosition.x,
+            top: contextMenuPosition.y,
+            width: 1,
+            height: 1,
+            opacity: 0,
+            zIndex: 9999
+          }}
+        />
+      </Dropdown>
+      
+      {/* 移动端长按菜单 */}
+      {isMobileLongPress && (
+        <Dropdown
+          menu={{ items: contextMenuItems }}
+          open={isMobileLongPress}
+          onOpenChange={setIsMobileLongPress}
+          trigger={['click']}
+          placement="bottom"
+          getPopupContainer={() => document.body}
+        >
+          <div
+            style={{
+              position: 'fixed',
+              left: '50%',
+              top: '50%',
+              transform: 'translate(-50%, -50%)',
+              width: 1,
+              height: 1,
+              opacity: 0,
+              zIndex: 9999
+            }}
+          />
+        </Dropdown>
+      )}
+      
+      {/* 链接输入模态框 */}
+      <Modal
+        title="链接到网页"
+        open={linkModalVisible}
+        onOk={handleLinkSave}
+        onCancel={handleLinkCancel}
+        okText="确定"
+        cancelText="取消"
+        width={500}
+      >
+        <div style={{ marginBottom: 16 }}>
+          <p style={{ fontSize: 14, color: '#666', marginBottom: 8 }}>
+            请输入要链接的网址：
+          </p>
+          <Input
+            placeholder="https://example.com"
+            value={linkUrl}
+            onChange={(e) => setLinkUrl(e.target.value)}
+            prefix={<LinkOutlined />}
+            style={{ fontSize: 14 }}
+            autoFocus
+          />
+        </div>
+        <div style={{ fontSize: 12, color: '#999' }}>
+          <p>提示：</p>
+          <ul style={{ margin: '8px 0 0 20px', padding: 0 }}>
+            <li>支持HTTP和HTTPS协议</li>
+            <li>如果不输入协议，默认添加https://前缀</li>
+            <li>点击确定后，单元格文字将变为可点击链接</li>
+          </ul>
+        </div>
+      </Modal>
+      
+
+      
+
+      
+      {/* 链接到表格模态框 */}
+      <Modal
+        title="链接到表格"
+        open={linkToTableModalVisible}
+        onOk={handleLinkToTableSave}
+        onCancel={handleLinkToTableCancel}
+        okText="确定"
+        cancelText="取消"
+        width={800}
+        // 只有选中了目标行才能确定
+        okButtonProps={{
+          disabled: !selectedTargetRow
+        }}
+      >
+        {/* 表格选择下拉菜单 */}
+        <div style={{ marginBottom: 24 }}>
+          <p style={{ fontSize: 14, color: '#666', marginBottom: 8 }}>
+            请选择要链接的表格：
+          </p>
+          <Select
+            placeholder="选择表格"
+            value={selectedTargetTable}
+            onChange={(value) => {
+              setSelectedTargetTable(value)
+              // 清空之前的选择
+              setSelectedTargetRow(null)
+              // 加载目标表格数据
+              if (value) {
+                fetchTargetTableData(value)
+              } else {
+                setTargetTableData([])
+              }
+            }}
+            style={{ width: '100%', marginBottom: 16 }}
+            loading={tablesLoading}
+            showSearch
+            optionFilterProp="children"
+          >
+            {tablesList.map(table => (
+              <Select.Option key={table.id} value={table.id}>
+                {table.table_name} ({table.description || '无描述'})
+              </Select.Option>
+            ))}
+          </Select>
+          
+          {/* 目标表格数据展示 */}
+          {selectedTargetTable && (
+            <div style={{ marginTop: 16 }}>
+              <p style={{ fontSize: 14, color: '#666', marginBottom: 8 }}>
+                请选择要链接的行：
+              </p>
+              <Spin spinning={targetTableLoading}>
+                <div style={{ maxHeight: 400, overflow: 'auto', border: '1px solid #e8e8e8', borderRadius: 4 }}>
+                  {targetTableData.length > 0 ? (
+                    <Table
+                      dataSource={targetTableData}
+                      rowKey="id"
+                      bordered
+                      style={{ width: '100%' }}
+                      pagination={{
+                        current: targetTableCurrentPage,
+                        pageSize: targetTablePageSize,
+                        total: targetTableTotal,
+                        onChange: (page, size) => {
+                          fetchTargetTableData(selectedTargetTable, page, size)
+                        },
+                        showSizeChanger: true,
+                        pageSizeOptions: ['10', '20', '50', '100']
+                      }}
+                      // 生成列配置，使用目标表格的列顺序
+                      columns={[
+                        // 选择列
+                        {
+                          title: '选择',
+                          dataIndex: 'select',
+                          width: 60,
+                          render: (_, record) => (
+                            <Checkbox
+                              checked={selectedTargetRow === record.id}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedTargetRow(record.id)
+                                } else {
+                                  setSelectedTargetRow(null)
+                                }
+                              }}
+                            />
+                          )
+                        },
+                        // ID列
+                        {
+                          title: 'ID',
+                          dataIndex: 'id',
+                          width: 80,
+                          sorter: (a, b) => a.id - b.id
+                        },
+                        // 创建时间列
+                        {
+                          title: '创建时间',
+                          dataIndex: 'created_at',
+                          width: 150,
+                          render: (text) => {
+                            if (text) {
+                              return new Date(text).toLocaleString()
+                            }
+                            return '-'
+                          }
+                        },
+                        // 数据列，使用目标表格的列配置
+                        ...(() => {
+                          const dataColumns = []
+                          targetTableColumns.forEach(column => {
+                            dataColumns.push({
+                              title: column.column_name,
+                              dataIndex: ['data', column.column_name],
+                              render: (text) => {
+                              if (text === null || text === undefined) {
+                                return '-'
+                              }
+                              // 如果是链接对象（包含_text和_link属性），只显示_text值
+                              if (typeof text === 'object' && text._text && text._link) {
+                                return text._text
+                              }
+                              return typeof text === 'object' ? JSON.stringify(text) : String(text)
+                            }
+                            })
+                          })
+                          return dataColumns
+                        })()
+                      ]}
+                    />
+                  ) : (
+                    <div style={{ textAlign: 'center', padding: '40px 0', color: '#999' }}>
+                      {targetTableLoading ? '加载中...' : '暂无数据'}
+                    </div>
+                  )}
+                </div>
+              </Spin>
+            </div>
+          )}
+        </div>
+        
+        <div style={{ fontSize: 12, color: '#999', marginTop: 16 }}>
+          <p>提示：</p>
+          <ul style={{ margin: '8px 0 0 20px', padding: 0 }}>
+            <li>选择表格后将显示该表格的前20条数据</li>
+            <li>只能选择一行数据进行链接</li>
+            <li>点击确定后，单元格文字将变为可点击链接</li>
+            <li>点击链接后将跳转到对应表格并展开该行</li>
+          </ul>
+        </div>
+      </Modal>
+      
       {/* 数据列表 - 添加空数据处理 */}
       {dataSource.length === 0 ? (
         <div style={{
@@ -516,32 +1688,57 @@ const MultiSelectDelete = ({
           </div>
         </div>
       ) : (
-        <Table
-          ref={tableRef}
-          rowKey={rowKey}
-          columns={mergedColumns}
-          dataSource={dataSource}
-          loading={loading}
-          pagination={pagination}
-          // 自定义行样式
-          rowClassName={(record) => {
-            return selectedRowKeys.includes(record[rowKey]) ? 'selected-row' : ''
-          }}
-          // 添加CSS样式
-          style={{
-            borderRadius: selectedRowKeys.length > 0 ? '0 0 8px 8px' : '8px'
-          }}
-          // 自适应宽度配置
-          scroll={{
-            x: 'max-content' // 让表格根据内容自动调整宽度
-          }}
-          // 展开行配置
-          expandable={hiddenColumns.length > 0 ? {
-            ...expandable,
-            expandedRowRender: expandedRowRender,
-            rowExpandable: (record) => hiddenColumns.length > 0
-          } : expandable}
-        />
+        <div 
+          ref={tableContainerRef} 
+          style={{ overflowX: 'auto', cursor: 'grab', scrollBehavior: 'smooth' }}
+        >
+          <Table
+            ref={tableRef}
+            rowKey={rowKey}
+            columns={mergedColumns}
+            dataSource={dataSource}
+            loading={loading}
+            pagination={pagination}
+            // 自定义行样式
+            rowClassName={(record) => {
+              let className = ''
+              if (selectedRowKeys.includes(record[rowKey])) {
+                className += 'selected-row '
+              }
+              if (highlightedRowId === record[rowKey]) {
+                console.log('[高亮调试] 应用highlighted-row类名到行ID:', record[rowKey])
+                className += 'highlighted-row '
+              }
+              return className.trim()
+            }}
+            // 添加CSS样式
+            style={{
+              borderRadius: selectedRowKeys.length > 0 ? '0 0 8px 8px' : '8px',
+              width: 'auto',
+              minWidth: '100%'
+            }}
+            // 自适应宽度配置
+            scroll={{
+              x: 'max-content' // 让表格根据内容自动调整宽度
+            }}
+            // 列宽拖动事件处理
+            onColumnResize={(resizeInfo) => {
+              const { width, columnKey } = resizeInfo
+              if (columnKey) {
+                setColumnWidths(prev => ({
+                  ...prev,
+                  [columnKey]: width
+                }))
+              }
+            }}
+            // 展开行配置
+            expandable={hiddenColumns.length > 0 ? {
+              ...expandable,
+              expandedRowRender: expandedRowRender,
+              rowExpandable: (record) => hiddenColumns.length > 0
+            } : expandable}
+          />
+        </div>
       )}
       
       {/* 全局样式 - 优化布局和视觉效果 */}
@@ -588,10 +1785,37 @@ const MultiSelectDelete = ({
           table-layout: auto !important;
         }
         
-        /* 确保表格只占用实际内容宽度 */
+        /* 确保表格容器可以横向拖动平移 */
         .ant-table-container {
           width: auto !important;
           min-width: 100%;
+          overflow-x: auto !important;
+          /* 允许PC端鼠标拖动平移 */
+          scroll-behavior: smooth;
+          /* 添加PC端拖动支持 */
+          -webkit-overflow-scrolling: touch;
+          /* 隐藏滚动条但保留滚动功能 */
+          scrollbar-width: thin;
+          scrollbar-color: rgba(24, 144, 255, 0.5) transparent;
+        }
+        
+        /* 为PC端添加鼠标拖动平移样式 */
+        .ant-table-container::-webkit-scrollbar {
+          height: 6px;
+        }
+        
+        .ant-table-container::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        
+        .ant-table-container::-webkit-scrollbar-thumb {
+          background-color: rgba(24, 144, 255, 0.5);
+          border-radius: 3px;
+        }
+        
+        /* 确保表格内容区域可以拖动 */
+        .ant-table-content {
+          overflow: visible !important;
         }
         
         /* 表格响应式样式 */
@@ -727,6 +1951,51 @@ const MultiSelectDelete = ({
           line-height: 1.3 !important;
           height: auto !important;
           min-height: unset !important;
+        }
+        
+        /* 高亮行动画效果 */
+        @keyframes highlightFlash {
+          0% {
+            background-color: transparent;
+          }
+          50% {
+            background-color: rgba(24, 144, 255, 0.6) !important;
+            box-shadow: 0 0 10px rgba(24, 144, 255, 0.4) !important;
+          }
+          100% {
+            background-color: transparent;
+          }
+        }
+        
+        /* 高亮行样式 - 简化为蓝色边框框住整行 */
+        .ant-table-tbody > tr.highlighted-row {
+          animation: highlightFlash 2s ease-in-out 3 !important;
+          animation-fill-mode: both !important;
+        }
+        
+        /* 高亮行单元格样式 - 只保留蓝色边框，去掉背景色和内阴影 */
+        .ant-table-tbody > tr.highlighted-row > td {
+          border-color: #1890ff !important;
+          border-width: 2px !important;
+          background-color: transparent !important;
+        }
+        
+        /* 第一个单元格添加左边框 */
+        .ant-table-tbody > tr.highlighted-row > td:first-child {
+          border-left: 2px solid #1890ff !important;
+          border-radius: 4px 0 0 4px !important;
+        }
+        
+        /* 最后一个单元格添加右边框 */
+        .ant-table-tbody > tr.highlighted-row > td:last-child {
+          border-right: 2px solid #1890ff !important;
+          border-radius: 0 4px 4px 0 !important;
+        }
+        
+        /* 所有中间单元格确保有上下边框 */
+        .ant-table-tbody > tr.highlighted-row > td {
+          border-top: 2px solid #1890ff !important;
+          border-bottom: 2px solid #1890ff !important;
         }
         
         /* 为操作列表头添加特殊样式，避免省略号显示 */

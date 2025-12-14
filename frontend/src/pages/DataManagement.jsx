@@ -29,7 +29,14 @@ const DataManagement = () => {
   const [pendingFile, setPendingFile] = useState(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
   // 展开行状态管理
-  const [expandedRowKeys, setExpandedRowKeys] = useState([])
+  const [expandedRowKeys, setExpandedRowKeys] = useState(() => {
+    // 从localStorage恢复展开行状态
+    const savedExpandedRowKeys = localStorage.getItem('expandedRowKeys')
+    return savedExpandedRowKeys ? JSON.parse(savedExpandedRowKeys) : []
+  })
+  
+  // 高亮行ID状态，用于动画效果
+  const [highlightedRowId, setHighlightedRowId] = useState(null)
   // 下拉列功能相关状态
   // 使用默认对象而不是null，确保状态始终可用
   const [visibleColumns, setVisibleColumns] = useState({
@@ -247,6 +254,55 @@ const DataManagement = () => {
     saveColumnPreferences(newVisibleColumns)
   }
 
+  // 生成CSV内容
+  const generateCSV = (columns, data) => {
+    // 表头
+    const headers = ['id', 'created_at', 'updated_at']
+    // 从columns中获取所有列名
+    columns.forEach(col => {
+      headers.push(col.column_name)
+    })
+    
+    // 生成CSV行
+    const rows = [headers.join(',')]
+    
+    // 处理每一行数据
+    data.forEach(item => {
+      const row = [
+        item.id,
+        item.created_at,
+        item.updated_at
+      ]
+      
+      // 处理每个列的值
+      columns.forEach(col => {
+        let value = item.data ? item.data[col.column_name] : ''
+        // 如果是对象，转换为字符串
+        if (typeof value === 'object' && value !== null) {
+          value = JSON.stringify(value)
+        } else if (value === null || value === undefined) {
+          value = ''
+        }
+        
+        // 处理CSV特殊字符：如果包含逗号、引号或换行符，用引号包裹
+        if (typeof value === 'string') {
+          if (value.includes(',') || value.includes('"') || value.includes('\n') || value.includes('\r')) {
+            // 转义引号
+            value = value.replace(/"/g, '""')
+            // 用引号包裹
+            value = `"${value}"`
+          }
+        }
+        
+        row.push(value)
+      })
+      
+      rows.push(row.join(','))
+    })
+    
+    return rows.join('\n')
+  }
+  
   // 处理数据导出
   const handleExport = async () => {
     if (!selectedTable) {
@@ -259,9 +315,63 @@ const DataManagement = () => {
     try {
       console.log(`开始导出表格 ${selectedTable.id} (${selectedTable.table_name}) 的数据`)
       
-      const response = await axios.get(`/api/v1/tables/${selectedTable.id}/export`, {
-        responseType: 'blob'
+      // 对于包含链接对象的数据，先获取其纯文本表示，确保导出的数据都是纯文本
+      const response = await axios.get(`/api/v1/tables/${selectedTable.id}/data`, {
+        params: {
+          page: 1,
+          per_page: 10000 // 一次性获取所有数据进行处理
+        }
       })
+      
+      // 检查响应
+      if (!response.data || response.data.code !== 200) {
+        message.error('获取数据失败，无法导出')
+        return
+      }
+      
+      // 处理数据，将所有链接对象转换为纯文本
+      const processedData = response.data.data.items.map(item => {
+        const processedItem = { ...item }
+        // 处理data字段
+        if (item.data) {
+          processedItem.data = { ...item.data }
+          for (const key in processedItem.data) {
+            const value = processedItem.data[key]
+            // 如果是链接对象，只保留文本部分
+            if (typeof value === 'object' && value !== null && value._text) {
+              processedItem.data[key] = value._text
+            }
+          }
+        }
+        return processedItem
+      })
+      
+      // 手动生成CSV
+      const csvContent = generateCSV(selectedTable.columns, processedData)
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      
+      // 生成文件名
+      const filename = `${selectedTable.table_name}_export.csv`
+      link.href = url
+      link.setAttribute('download', filename)
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+      
+      console.log(`数据导出成功，文件名: ${filename}`)
+      message.success(`数据导出成功，文件名: ${filename}`)
+      return
+    } catch (error) {
+      console.error('前端处理导出数据失败，尝试使用后端导出:', error)
+      
+      // 如果前端处理失败，尝试使用后端导出
+      try {
+        const response = await axios.get(`/api/v1/tables/${selectedTable.id}/export`, {
+          responseType: 'blob'
+        })
       
       console.log('导出请求成功，开始处理下载')
       
@@ -269,14 +379,22 @@ const DataManagement = () => {
       const contentType = response.headers['content-type']
       if (!contentType || !contentType.includes('text/csv')) {
         // 尝试解析错误信息
-        const errorText = await new Promise((resolve) => {
-          const reader = new FileReader()
-          reader.onload = (e) => resolve(e.target.result)
-          reader.readAsText(response.data)
-        })
-        
-        console.error('导出失败，服务器返回错误:', errorText)
-        message.error(`数据导出失败: ${errorText}`)
+        let errorText = '未知错误'
+        try {
+          errorText = await new Promise((resolve) => {
+            const reader = new FileReader()
+            reader.onload = (e) => resolve(e.target.result)
+            reader.readAsText(response.data)
+          })
+          
+          console.error('导出失败，服务器返回错误:', errorText)
+          console.error('完整响应:', response)
+          message.error(`数据导出失败: ${errorText}`)
+        } catch (parseError) {
+          console.error('导出失败，无法解析错误信息:', parseError)
+          console.error('完整响应:', response)
+          message.error(`数据导出失败: 服务器返回非CSV响应，状态码: ${response.status}`)
+        }
         return
       }
       
@@ -306,40 +424,42 @@ const DataManagement = () => {
       
       console.log(`数据导出成功，文件名: ${filename}`)
       message.success(`数据导出成功，文件名: ${filename}`)
-    } catch (error) {
-      console.error('导出数据错误详情:', {
-        message: error.message,
-        response: error.response ? {
-          status: error.response.status,
-          statusText: error.response.statusText,
-          data: error.response.data,
-          headers: error.response.headers
-        } : null,
-        config: error.config ? {
-          url: error.config.url,
-          method: error.config.method
-        } : null
-      })
-      
-      if (error.response) {
-        // 服务器返回错误
-        if (error.response.status === 401) {
-          message.error('登录已过期，请重新登录')
-        } else if (error.response.status === 403) {
-          message.error('您没有导出数据的权限')
-        } else if (error.response.status === 404) {
-          message.error('表格不存在或已被删除')
-        } else if (error.response.status === 500) {
-          message.error('服务器内部错误，请联系管理员')
+      } catch (backendError) {
+        console.error('后端导出失败:', backendError)
+        console.error('导出数据错误详情:', {
+          message: backendError.message,
+          response: backendError.response ? {
+            status: backendError.response.status,
+            statusText: backendError.response.statusText,
+            data: backendError.response.data,
+            headers: backendError.response.headers
+          } : null,
+          config: backendError.config ? {
+            url: backendError.config.url,
+            method: backendError.config.method
+          } : null
+        })
+        
+        if (backendError.response) {
+          // 服务器返回错误
+          if (backendError.response.status === 401) {
+            message.error('登录已过期，请重新登录')
+          } else if (backendError.response.status === 403) {
+            message.error('您没有导出数据的权限')
+          } else if (backendError.response.status === 404) {
+            message.error('表格不存在或已被删除')
+          } else if (backendError.response.status === 500) {
+            message.error('服务器内部错误，请联系管理员')
+          } else {
+            message.error(`数据导出失败，错误码: ${backendError.response.status}`)
+          }
+        } else if (backendError.request) {
+          // 请求已发送但没有收到响应
+          message.error('网络异常，服务器没有响应，请检查网络连接')
         } else {
-          message.error(`数据导出失败，错误码: ${error.response.status}`)
+          // 请求配置错误
+          message.error(`数据导出失败: ${backendError.message}`)
         }
-      } else if (error.request) {
-        // 请求已发送但没有收到响应
-        message.error('网络异常，服务器没有响应，请检查网络连接')
-      } else {
-        // 请求配置错误
-        message.error(`数据导出失败: ${error.message}`)
       }
     } finally {
       exportLoading() // 关闭加载提示
@@ -597,7 +717,29 @@ const DataManagement = () => {
   // 高亮显示匹配文本
   const highlightText = (text) => {
     const currentState = getCurrentSearchState()
-    if (!currentState.highlightedText || typeof text !== 'string') {
+    
+    // 如果是链接对象，返回原始文本或高亮处理后的文本
+    if (typeof text === 'object' && text !== null && text._text) {
+      const textStr = text._text
+      if (!currentState.highlightedText) {
+        return textStr
+      }
+      
+      try {
+        const regex = new RegExp(`(${currentState.highlightedText})`, 'gi')
+        return textStr.replace(regex, '<span style="background-color: #fff212; font-weight: 500;">$1</span>')
+      } catch (error) {
+        return textStr
+      }
+    }
+    
+    // 如果不是字符串，直接返回
+    if (typeof text !== 'string') {
+      return text
+    }
+    
+    // 普通字符串的高亮处理
+    if (!currentState.highlightedText) {
       return text
     }
     
@@ -621,6 +763,98 @@ const DataManagement = () => {
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
   }, [])
+  
+  // 保存展开行状态到localStorage
+  useEffect(() => {
+    localStorage.setItem('expandedRowKeys', JSON.stringify(expandedRowKeys))
+  }, [expandedRowKeys])
+  
+  // 从localStorage恢复selectedTableId
+  useEffect(() => {
+    const savedSelectedTableId = localStorage.getItem('selectedTableId')
+    if (savedSelectedTableId && !selectedTableId) {
+      setSelectedTableId(parseInt(savedSelectedTableId))
+    }
+  }, [selectedTableId, setSelectedTableId])
+  
+  // 从localStorage恢复需要自动展开的行ID
+  useEffect(() => {
+    console.log('[高亮调试] 开始检查自动展开和高亮...')
+    console.log('[高亮调试] 数据列表长度:', dataList.length)
+    console.log('[高亮调试] 当前选中表格:', selectedTable ? selectedTable.id : 'null')
+    
+    // 只有当数据列表加载完成且当前有选中表格时才执行自动展开和高亮
+    if (dataList.length > 0 && selectedTable) {
+      const autoExpandInfoStr = localStorage.getItem('autoExpandInfo')
+      console.log('[高亮调试] autoExpandInfoStr:', autoExpandInfoStr)
+      
+      if (autoExpandInfoStr) {
+        try {
+          const autoExpandInfo = JSON.parse(autoExpandInfoStr)
+          console.log('[高亮调试] 解析后的autoExpandInfo:', autoExpandInfo)
+          console.log('[高亮调试] 类型比较 - autoExpandInfo.tableId:', typeof autoExpandInfo.tableId, 'selectedTable.id:', typeof selectedTable.id)
+          
+          // 只有当当前表格ID与目标表格ID匹配时才执行高亮逻辑
+          if (autoExpandInfo.tableId === selectedTable.id) {
+            const rowId = autoExpandInfo.rowId
+            console.log('[高亮调试] 行ID:', rowId, '类型:', typeof rowId)
+            
+            // 检查行ID是否存在于数据中
+            const rowExists = dataList.some(item => item.id === rowId)
+            console.log('[高亮调试] 行是否存在:', rowExists)
+            if (rowExists) {
+              // 先将需要展开的行ID添加到expandedRowKeys中
+              setExpandedRowKeys(prev => {
+                if (!prev.includes(rowId)) {
+                  console.log('[高亮调试] 添加行ID到expandedRowKeys:', rowId)
+                  return [...prev, rowId]
+                }
+                return prev
+              })
+              
+              // 直接设置高亮行ID，使用更简单的方式
+              console.log('[高亮调试] 直接设置highlightedRowId:', rowId)
+              setHighlightedRowId(rowId)
+              
+              // 6秒后移除高亮效果
+              const clearTimer = setTimeout(() => {
+                console.log('[高亮调试] 6秒后清除highlightedRowId')
+                setHighlightedRowId(null)
+              }, 6000)
+              
+              // 保存定时器引用，确保能被清除
+              if (window.highlightTimer) {
+                clearTimeout(window.highlightTimer)
+              }
+              window.highlightTimer = clearTimer
+            } else {
+              console.log('[高亮调试] 行ID不存在于数据中:', rowId)
+            }
+          } else {
+            console.log('[高亮调试] 表格ID不匹配:', autoExpandInfo.tableId, '!==', selectedTable.id)
+          }
+        } catch (error) {
+          console.error('[高亮调试] 解析autoExpandInfo失败:', error)
+        }
+        finally {
+          // 无论是否执行高亮逻辑，都删除localStorage中的autoExpandInfo，防止每次加载都尝试展开
+          console.log('[高亮调试] 清除localStorage中的autoExpandInfo')
+          localStorage.removeItem('autoExpandInfo')
+        }
+      } else {
+        console.log('[高亮调试] 没有找到autoExpandInfo')
+      }
+    } else {
+      console.log('[高亮调试] 数据列表为空或没有选中表格，不执行高亮')
+    }
+  }, [setExpandedRowKeys, dataList, selectedTable])
+  
+  // 当selectedTableId变化时保存到localStorage
+  useEffect(() => {
+    if (selectedTableId) {
+      localStorage.setItem('selectedTableId', selectedTableId)
+    }
+  }, [selectedTableId])
   
   // 计算是否为移动端
   const isMobile = screenWidth < 768
@@ -727,7 +961,83 @@ const DataManagement = () => {
           maxWidth: 300,
           render: (text, record) => {
             const value = record.data[column.column_name]
-            return <span dangerouslySetInnerHTML={{ __html: highlightText(value) }} />;
+            // 如果是链接对象，直接渲染为链接
+            if (typeof value === 'object' && value !== null && value._text && value._link) {
+              const highlightedText = highlightText(value._text)
+              
+              // 检查链接是否为表格链接
+              const isTableLink = value._link.startsWith('table:');
+              
+              if (isTableLink) {
+                // 处理表格链接，格式：table:{targetTableId}:{targetRowId}
+                return (
+                  <a
+                    href="#"
+                    onClick={(e) => {
+                      e.preventDefault(); // 阻止默认的href跳转
+                      const [, targetTableIdStr, targetRowIdStr] = value._link.split(':');
+                      console.log('[链接调试] 原始链接:', value._link);
+                      console.log('[链接调试] 解析结果 - tableId:', targetTableIdStr, 'rowId:', targetRowIdStr);
+                      
+                      if (targetTableIdStr && targetRowIdStr) {
+                        // 确保转换为数字类型
+                        const targetTableId = parseInt(targetTableIdStr);
+                        const targetRowId = parseInt(targetRowIdStr);
+                        console.log('[链接调试] 转换后 - tableId:', targetTableId, 'rowId:', targetRowId);
+                        
+                        // 跳转到目标表格
+                        localStorage.setItem('selectedTableId', targetTableId);
+                        // 保存需要展开的行ID和目标表格ID
+                        localStorage.setItem('autoExpandInfo', JSON.stringify({
+                          tableId: targetTableId,
+                          rowId: targetRowId
+                        }));
+                        console.log('[链接调试] 已保存到localStorage');
+                        // 刷新页面
+                        window.location.reload();
+                      }
+                    }}
+                    style={{
+                      color: '#1890ff',
+                      textDecoration: 'underline',
+                      cursor: 'pointer',
+                      display: 'inline-block',
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      wordBreak: 'break-word',
+                      overflow: 'hidden'
+                    }}
+                    dangerouslySetInnerHTML={{ __html: highlightedText }}
+                  />
+                );
+              } else {
+                // 处理普通网页链接
+                return (
+                  <a
+                    href={value._link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      color: '#1890ff',
+                      textDecoration: 'underline',
+                      cursor: 'pointer',
+                      display: 'inline-block',
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      wordBreak: 'break-word',
+                      overflow: 'hidden'
+                    }}
+                    dangerouslySetInnerHTML={{ __html: highlightedText }}
+                  />
+                );
+              }
+            }
+            // 否则按照原来的方式处理
+            let displayValue = value
+            if (typeof displayValue === 'object' && displayValue !== null) {
+              displayValue = displayValue._text || JSON.stringify(displayValue)
+            }
+            return <span dangerouslySetInnerHTML={{ __html: highlightText(displayValue) }} />;
           }
         }
         dataColumns.push(dataColumn)
@@ -1127,6 +1437,7 @@ const DataManagement = () => {
                   expandedRowKeys: expandedRowKeys,
                   onExpandedRowsChange: setExpandedRowKeys
                 }}
+                highlightedRowId={highlightedRowId}
               />
             );
           })()}

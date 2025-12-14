@@ -254,7 +254,7 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn }) => {
 
   return (
     <TableContext.Provider value={{ tables, selectedTableId, setSelectedTableId, fetchTables }}>
-      <Layout style={{ height: '100vh', display: 'flex', flexDirection: 'column' }} className="app-layout">
+      <Layout style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }} className="app-layout">
         <Header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#001529', padding: '0 16px' }}>
           <div style={{ display: 'flex', alignItems: 'center' }}>
             {/* 通用菜单按钮，控制桌面端折叠和移动端显示 */}
@@ -296,146 +296,145 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn }) => {
             width={200}
             trigger={null} // 移除默认触发器，我们将在sidebar内部自定义
             style={{ 
-              height: '100%', // 确保侧边栏占满整个父容器高度
+              height: 'auto', // 让侧边栏自动适应父容器高度
               display: 'flex',
-              flexDirection: 'column'
+              flexDirection: 'column',
+              alignSelf: 'stretch' // 让侧边栏在交叉轴方向（垂直方向）拉伸
             }}
           >
             <div className="logo" />
-            <Menu theme="dark" mode="inline" items={[
-              {
-                key: '1',
-                icon: <DatabaseOutlined />,
-                label: <Link to="/table-definition">表格定义</Link>
-              },
-              {
-                key: '2',
-                icon: <DatabaseOutlined />,
-                label: <Link to="/defined-tables">已定义表格</Link>
-              },
-              {
-                key: '3',
-                icon: <DatabaseOutlined />,
-                label: '数据管理',
-                children: tables.length === 0 ? [
-                  {
-                    key: '3-1',
-                    disabled: true,
-                    label: '暂无已定义表格'
-                  }
-                ] : tables.map(table => ({
-                  key: `table-${table.id}`,
+            {/* 侧边栏菜单容器，使用flex-grow: 1确保它能占据所有剩余空间 */}
+            <div style={{ flex: '1', overflowY: 'auto' }}>
+              <Menu theme="dark" mode="inline" items={[
+                {
+                  key: '1',
                   icon: <DatabaseOutlined />,
-                  label: table.table_name,
-                  onClick: () => handleTableClick(table.id)
-                }))
-              },
-              {
-                key: '4',
-                icon: <BarChartOutlined />,
-                label: <Link to="/reports">报表统计</Link>
-              },
-              ...(() => {
-                const user = JSON.parse(localStorage.getItem('user'));
-                if (user && user.role === 'admin') {
-                  return [{
-                    key: '5',
-                    icon: <UserOutlined />,
-                    label: <Link to="/user-management">用户管理</Link>
-                  }];
-                }
-                return [];
-              })(),
-              {
-                key: '6',
-                icon: <UserOutlined />,
-                label: '设置',
-                style: { marginTop: 'auto' },
-                children: [
-                  {
-                    key: '6-0',
-                    label: <Link to="/change-password">修改密码</Link>
-                  },
-                  ...(() => {
-                    const user = JSON.parse(localStorage.getItem('user'));
-                    if (user && user.role === 'admin') {
-                      return [
-                        {
-                          key: '6-1',
-                          label: '导出所有数据',
-                          onClick: () => {
-                            // 导出所有数据
-                            axios.get('/api/v1/export-all-data', { responseType: 'blob' })
-                              .then(response => {
-                                const url = window.URL.createObjectURL(new Blob([response.data]));
-                                const link = document.createElement('a');
-                                link.href = url;
-                                link.setAttribute('download', 'all_data.xlsx');
-                                document.body.appendChild(link);
-                                link.click();
-                                link.remove();
-                                message.success('数据导出成功');
-                              })
-                              .catch(error => {
-                                console.error('Export error:', error);
-                                message.error('数据导出失败');
-                              });
-                          }
-                        },
-                        {
-                          key: '6-2',
-                          label: '导入数据',
-                          onClick: () => {
-                            // 导入数据
-                            const input = document.createElement('input');
-                            input.type = 'file';
-                            input.accept = '.xlsx, .xls';
-                            input.onchange = (e) => {
-                              const file = e.target.files[0];
-                              if (file) {
-                                const formData = new FormData();
-                                formData.append('file', file);
-                                  
-                                axios.post('/api/v1/import-data', formData, {
-                                  headers: {
-                                    'Content-Type': 'multipart/form-data'
-                                  }
-                                })
+                  label: <Link to="/table-definition">表格定义</Link>
+                },
+                {
+                  key: '2',
+                  icon: <DatabaseOutlined />,
+                  label: <Link to="/defined-tables">已定义表格</Link>
+                },
+                {
+                  key: '3',
+                  icon: <DatabaseOutlined />,
+                  label: '数据管理',
+                  children: tables.length === 0 ? [
+                    {
+                      key: '3-1',
+                      disabled: true,
+                      label: '暂无已定义表格'
+                    }
+                  ] : tables.map(table => ({
+                    key: `table-${table.id}`,
+                    icon: <DatabaseOutlined />,
+                    label: table.table_name,
+                    onClick: () => handleTableClick(table.id)
+                  }))
+                },
+                {
+                  key: '4',
+                  icon: <BarChartOutlined />,
+                  label: <Link to="/reports">报表统计</Link>
+                },
+                ...(() => {
+                  const user = JSON.parse(localStorage.getItem('user'));
+                  if (user && user.role === 'admin') {
+                    return [{
+                      key: '5',
+                      icon: <UserOutlined />,
+                      label: <Link to="/user-management">用户管理</Link>
+                    }];
+                  }
+                  return [];
+                })(),
+                {
+                  key: '6',
+                  icon: <UserOutlined />,
+                  label: '设置',
+                  children: [
+                    {
+                      key: '6-0',
+                      label: <Link to="/change-password">修改密码</Link>
+                    },
+                    ...(() => {
+                      const user = JSON.parse(localStorage.getItem('user'));
+                      if (user && user.role === 'admin') {
+                        return [
+                          {
+                            key: '6-1',
+                            label: '导出所有数据',
+                            onClick: () => {
+                              // 导出所有数据
+                              axios.get('/api/v1/export-all-data', { responseType: 'blob' })
                                 .then(response => {
-                                  if (response.data.code === 200) {
-                                    message.success('数据导入完成');
-                                    // 刷新表格列表
-                                    fetchTables();
-                                  } else {
-                                    message.error(response.data.message);
-                                  }
+                                  const url = window.URL.createObjectURL(new Blob([response.data]));
+                                  const link = document.createElement('a');
+                                  link.href = url;
+                                  link.setAttribute('download', 'all_data.xlsx');
+                                  document.body.appendChild(link);
+                                  link.click();
+                                  link.remove();
+                                  message.success('数据导出成功');
                                 })
                                 .catch(error => {
-                                  console.error('Import error:', error);
-                                  message.error('数据导入失败');
+                                  console.error('Export error:', error);
+                                  message.error('数据导出失败');
                                 });
-                              }
-                            };
-                            input.click();
+                            }
+                          },
+                          {
+                            key: '6-2',
+                            label: '导入数据',
+                            onClick: () => {
+                              // 导入数据
+                              const input = document.createElement('input');
+                              input.type = 'file';
+                              input.accept = '.xlsx, .xls';
+                              input.onchange = (e) => {
+                                const file = e.target.files[0];
+                                if (file) {
+                                  const formData = new FormData();
+                                  formData.append('file', file);
+                                    
+                                  axios.post('/api/v1/import-data', formData, {
+                                    headers: {
+                                      'Content-Type': 'multipart/form-data'
+                                    }
+                                  })
+                                  .then(response => {
+                                    if (response.data.code === 200) {
+                                      message.success('数据导入完成');
+                                      // 刷新表格列表
+                                      fetchTables();
+                                    } else {
+                                      message.error(response.data.message);
+                                    }
+                                  })
+                                  .catch(error => {
+                                    console.error('Import error:', error);
+                                    message.error('数据导入失败');
+                                  });
+                                }
+                              };
+                              input.click();
+                            }
                           }
-                        }
-                      ];
-                    }
-                    return [];
-                  })()
-                ]
-              }
-            ]} />
+                        ];
+                      }
+                      return [];
+                    })()
+                  ]
+                }
+              ]} />
+            </div>
             
-            {/* 侧边栏内部的折叠按钮 */}
+            {/* 侧边栏内部的折叠按钮 - 移除绝对定位，让它成为内容的一部分 */}
             <div 
               className="sidebar-collapse-trigger"
               onClick={() => setCollapsed(!collapsed)}
               style={{
-                position: 'absolute',
-                bottom: '0',
-                left: '0',
-                right: '0',
                 height: '48px',
                 display: 'flex',
                 justifyContent: 'center',

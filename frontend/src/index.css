@@ -70,7 +70,7 @@ code {
 /* 重要：不要随意修改这些关键样式，否则会导致侧边栏高度异常 */
 .desktop-sider {
   position: relative;
-  height: 100% !important; /* 确保侧边栏占满整个父容器高度 */
+  min-height: 100% !important; /* 确保侧边栏至少占满整个父容器高度 */
   display: flex !important;
   flex-direction: column !important;
   min-height: 0 !important;
@@ -79,19 +79,34 @@ code {
 /* 侧边栏折叠按钮样式 */
 .sidebar-collapse-trigger {
   z-index: 10;
-  position: absolute !important;
-  bottom: 0 !important;
-  left: 0 !important;
-  right: 0 !important;
+  position: relative !important;
+  bottom: auto !important;
+  left: auto !important;
+  right: auto !important;
+  margin-top: auto !important;
 }
 
 /* 确保侧边栏菜单能够占据剩余空间 */
 .desktop-sider .ant-menu {
   flex: 1 !important;
-  overflow-y: auto !important;
   overflow-x: hidden !important;
   margin: 0 !important;
   padding: 0 !important;
+}
+
+/* 当侧边栏菜单容器有大量内容时，允许菜单扩展 */
+.desktop-sider > div:nth-child(2) {
+  overflow-y: auto !important;
+  max-height: calc(100% - 80px); /* 减去logo和折叠按钮的高度 */
+}
+
+/* 确保ant-layout-sider-children占满整个侧边栏高度 */
+.desktop-sider .ant-layout-sider-children {
+  height: 100% !important;
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 !important;
+  overflow: hidden !important;
 }
 
 /* 表格定义区域样式 */
