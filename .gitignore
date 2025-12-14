@@ -8,7 +8,7 @@ frontend_dist/
 build/
 
 # 数据库文件
-instance/inventory.db
+backend/instance/inventory.db
 
 # 日志文件
 *.log
