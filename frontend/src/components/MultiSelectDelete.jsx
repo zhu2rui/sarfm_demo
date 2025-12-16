@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useContext } from 'react'
 import { Table, Checkbox, Button, message, Modal, Space, Tag, Spin, Dropdown, Menu, Input, Select } from 'antd'
-import { DeleteOutlined, LoadingOutlined, LinkOutlined, EditOutlined, SearchOutlined } from '@ant-design/icons'
+import { DeleteOutlined, LoadingOutlined, LinkOutlined, EditOutlined, SearchOutlined, CopyOutlined } from '@ant-design/icons'
 import axios from 'axios'
 import { TableContext } from '../App'
 
@@ -618,8 +618,79 @@ const MultiSelectDelete = ({
     setLinkToTableModalVisible(false)
   }
   
+  // 处理复制功能
+  const handleCopy = async () => {
+    try {
+      // 获取当前选中的单元格值
+      let copyText = '';
+      
+      // 处理不同类型的值
+      if (typeof selectedCellValue === 'object' && selectedCellValue !== null) {
+        // 如果是链接对象，只复制文本部分
+        if (selectedCellValue._text) {
+          copyText = selectedCellValue._text;
+        } else {
+          // 其他对象类型转换为字符串
+          copyText = JSON.stringify(selectedCellValue);
+        }
+      } else if (selectedCellValue !== null && selectedCellValue !== undefined) {
+        // 基本类型直接转换为字符串
+        copyText = String(selectedCellValue);
+      } else {
+        // 空值处理
+        copyText = '';
+      }
+      
+      // 使用Clipboard API复制文本
+      await navigator.clipboard.writeText(copyText);
+      
+      // 显示复制成功提示
+      message.success('已复制', 1); // 1秒后自动关闭
+    } catch (err) {
+      console.error('复制失败:', err);
+      // 降级方案：使用传统的document.execCommand('copy')
+      try {
+        const textArea = document.createElement('textarea');
+        let copyText = '';
+        
+        if (typeof selectedCellValue === 'object' && selectedCellValue !== null) {
+          if (selectedCellValue._text) {
+            copyText = selectedCellValue._text;
+          } else {
+            copyText = JSON.stringify(selectedCellValue);
+          }
+        } else if (selectedCellValue !== null && selectedCellValue !== undefined) {
+          copyText = String(selectedCellValue);
+        } else {
+          copyText = '';
+        }
+        
+        textArea.value = copyText;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        
+        message.success('已复制', 1);
+      } catch (fallbackErr) {
+        console.error('复制失败（降级方案）:', fallbackErr);
+        message.error('复制失败，请手动选择并复制', 2);
+      }
+    }
+    
+    // 关闭右键菜单
+    setContextMenuVisible(false);
+    setIsMobileLongPress(false);
+  };
+  
   // 右键菜单内容
   const contextMenuItems = [
+    {
+      label: '复制',
+      key: 'copy',
+      icon: <CopyOutlined />,
+      onClick: handleCopy
+    },
     {
       label: '链接到表格',
       key: 'link-to-table',

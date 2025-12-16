@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext } from 'react'
 import { Card, Button, Modal, Form, Input, message, Popconfirm, Space, InputNumber, Upload, Alert, Select, Dropdown, Menu, Checkbox } from 'antd'
-import { PlusOutlined, EditOutlined, DeleteOutlined, UploadOutlined, DownloadOutlined, AppstoreOutlined, SearchOutlined } from '@ant-design/icons'
+import { PlusOutlined, EditOutlined, DeleteOutlined, UploadOutlined, DownloadOutlined, AppstoreOutlined, SearchOutlined, CopyOutlined } from '@ant-design/icons'
 import axios from 'axios'
 import { TableContext } from '../App'
 import MultiSelectDelete from '../components/MultiSelectDelete'
@@ -39,6 +39,10 @@ const DataManagement = () => {
   
   // 高亮行ID状态，用于动画效果
   const [highlightedRowId, setHighlightedRowId] = useState(null)
+  
+  // 复制行相关状态
+  const [copiedOriginalData, setCopiedOriginalData] = useState(null)
+  const [isCopyMode, setIsCopyMode] = useState(false)
   // 下拉列功能相关状态
   // 使用默认对象而不是null，确保状态始终可用
   const [visibleColumns, setVisibleColumns] = useState({
@@ -582,73 +586,150 @@ const DataManagement = () => {
   }
 
   // 显示添加/编辑模态框
-  const showModal = (record = null) => {
+  const showModal = (record = null, isCopy = false) => {
     if (record) {
-      setIsEditMode(true)
-      setCurrentData(record)
-      
-      // 初始化保留链接状态
-      const initialKeepLinks = {}
-      
-      // 准备表单数据
-      const formData = {}
-      
-      // 遍历所有列，确保每列都有对应的值
-      selectedTable.columns.forEach(column => {
-        const key = column.column_name
-        const value = record.data[key]
+      if (isCopy) {
+        // 复制模式：使用添加模式，但填充数据
+        setIsEditMode(false)
+        setIsCopyMode(true)
+        setCurrentData(record)
         
-        // 跳过自增列
-        if (column.autoIncrement) {
-          return
-        }
+        // 初始化保留链接状态
+        const initialKeepLinks = {}
         
-        console.log(`[DEBUG] Processing column ${key}, value:`, value);
-        console.log(`[DEBUG] Value type:`, typeof value);
+        // 准备表单数据
+        const formData = {}
         
-        let fieldValue = ''
-        let isLink = false
+        // 保存原始数据用于后续比较
+        const originalFormData = {}
         
-        // 检查是否为链接对象 { _text: '显示文本', _link: '链接URL' }
-        try {
-          if (typeof value === 'object' && value !== null) {
-            // 尝试获取_text属性，无论是否有_link属性
-            if (value._text !== undefined) {
-              fieldValue = value._text
-              isLink = !!value._link // 只有当有_link属性时才认为是链接
+        // 遍历所有列，确保每列都有对应的值
+        selectedTable.columns.forEach(column => {
+          const key = column.column_name
+          const value = record.data[key]
+          
+          // 跳过自增列
+          if (column.autoIncrement) {
+            return
+          }
+          
+          console.log(`[DEBUG] Processing column ${key}, value:`, value);
+          console.log(`[DEBUG] Value type:`, typeof value);
+          
+          let fieldValue = ''
+          let isLink = false
+          
+          // 检查是否为链接对象 { _text: '显示文本', _link: '链接URL' }
+          try {
+            if (typeof value === 'object' && value !== null) {
+              // 尝试获取_text属性，无论是否有_link属性
+              if (value._text !== undefined) {
+                fieldValue = value._text
+                isLink = !!value._link // 只有当有_link属性时才认为是链接
+              } else {
+                // 其他对象类型，转换为字符串
+                fieldValue = JSON.stringify(value) || ''
+                isLink = false
+              }
             } else {
-              // 其他对象类型，转换为字符串
-              fieldValue = JSON.stringify(value) || ''
+              // 非对象类型，直接转换为字符串
+              fieldValue = value !== null && value !== undefined ? String(value) : ''
               isLink = false
             }
-          } else {
-            // 非对象类型，直接转换为字符串
+          } catch (error) {
+            // 处理任何可能的错误
+            console.error(`[DEBUG] Error processing column ${key}:`, error);
             fieldValue = value !== null && value !== undefined ? String(value) : ''
             isLink = false
           }
-        } catch (error) {
-          // 处理任何可能的错误
-          console.error(`[DEBUG] Error processing column ${key}:`, error);
-          fieldValue = value !== null && value !== undefined ? String(value) : ''
-          isLink = false
-        }
+          
+          console.log(`[DEBUG] Processed fieldValue:`, fieldValue, `isLink:`, isLink);
+          
+          // 设置保留链接状态和表单值
+          initialKeepLinks[key] = isLink // 只有链接对象才显示保留链接选项
+          formData[key] = fieldValue // 设置表单默认值
+          originalFormData[key] = fieldValue // 保存原始值用于比较
+        })
         
-        console.log(`[DEBUG] Processed fieldValue:`, fieldValue, `isLink:`, isLink);
+        setKeepLinks(initialKeepLinks)
+        setCopiedOriginalData(originalFormData)
         
-        // 设置保留链接状态和表单值
-        initialKeepLinks[key] = isLink // 只有链接对象才显示保留链接选项
-        formData[key] = fieldValue // 设置表单默认值
-      })
-      
-      setKeepLinks(initialKeepLinks)
-      
-      console.log(`[DEBUG] Final formData:`, formData);
-      
-      // 直接设置表单值，然后显示模态框
-      form.setFieldsValue(formData)
+        console.log(`[DEBUG] Final formData:`, formData);
+        
+        // 直接设置表单值，然后显示模态框
+        form.setFieldsValue(formData)
+      } else {
+        // 编辑模式
+        setIsEditMode(true)
+        setIsCopyMode(false)
+        setCurrentData(record)
+        
+        // 初始化保留链接状态
+        const initialKeepLinks = {}
+        
+        // 准备表单数据
+        const formData = {}
+        
+        // 遍历所有列，确保每列都有对应的值
+        selectedTable.columns.forEach(column => {
+          const key = column.column_name
+          const value = record.data[key]
+          
+          // 跳过自增列
+          if (column.autoIncrement) {
+            return
+          }
+          
+          console.log(`[DEBUG] Processing column ${key}, value:`, value);
+          console.log(`[DEBUG] Value type:`, typeof value);
+          
+          let fieldValue = ''
+          let isLink = false
+          
+          // 检查是否为链接对象 { _text: '显示文本', _link: '链接URL' }
+          try {
+            if (typeof value === 'object' && value !== null) {
+              // 尝试获取_text属性，无论是否有_link属性
+              if (value._text !== undefined) {
+                fieldValue = value._text
+                isLink = !!value._link // 只有当有_link属性时才认为是链接
+              } else {
+                // 其他对象类型，转换为字符串
+                fieldValue = JSON.stringify(value) || ''
+                isLink = false
+              }
+            } else {
+              // 非对象类型，直接转换为字符串
+              fieldValue = value !== null && value !== undefined ? String(value) : ''
+              isLink = false
+            }
+          } catch (error) {
+            // 处理任何可能的错误
+            console.error(`[DEBUG] Error processing column ${key}:`, error);
+            fieldValue = value !== null && value !== undefined ? String(value) : ''
+            isLink = false
+          }
+          
+          console.log(`[DEBUG] Processed fieldValue:`, fieldValue, `isLink:`, isLink);
+          
+          // 设置保留链接状态和表单值
+          initialKeepLinks[key] = isLink // 只有链接对象才显示保留链接选项
+          formData[key] = fieldValue // 设置表单默认值
+        })
+        
+        setKeepLinks(initialKeepLinks)
+        
+        console.log(`[DEBUG] Final formData:`, formData);
+        
+        // 直接设置表单值，然后显示模态框
+        form.setFieldsValue(formData)
+      }
     } else {
+      // 添加模式
       setIsEditMode(false)
+      setIsCopyMode(false)
       setCurrentData(null)
+      setCopiedOriginalData(null)
       setKeepLinks({})
       form.resetFields()
     }
@@ -660,6 +741,20 @@ const DataManagement = () => {
   // 处理表单提交
   const handleSubmit = async (values) => {
     if (!selectedTable) return
+    
+    // 复制模式下验证：检查是否有任何字段被修改
+    if (isCopyMode && copiedOriginalData) {
+      const hasModified = Object.keys(values).some(key => {
+        const originalValue = copiedOriginalData[key] || ''
+        const currentValue = values[key] || ''
+        return String(currentValue).trim() !== String(originalValue).trim()
+      })
+      
+      if (!hasModified) {
+        message.warning('没有修改任何一个值')
+        return
+      }
+    }
     
     // 验证：确保至少有一个字段有内容
     const hasContent = Object.values(values).some(value => {
@@ -728,6 +823,48 @@ const DataManagement = () => {
           data: submitData
         })
       } else {
+        // 复制模式或添加模式
+        // 处理保留链接和自增列（如果有）
+        if (isCopyMode && currentData) {
+          selectedTable.columns.forEach(column => {
+            const key = column.column_name
+            
+            // 跳过自增列
+            if (column.autoIncrement) {
+              return
+            }
+            
+            // 检查当前字段是否有原始数据
+            if (!currentData.data[key]) {
+              return
+            }
+            
+            // 获取当前字段的新值
+            const newValue = values[key] !== undefined ? values[key] : ''
+            
+            // 检查当前字段是否为链接对象 { _text: '显示文本', _link: '链接URL' }
+            const isOriginalLinkObject = typeof currentData.data[key] === 'object' && 
+                                        currentData.data[key] !== null && 
+                                        currentData.data[key]._text && 
+                                        currentData.data[key]._link
+            
+            // 处理链接对象
+            if (isOriginalLinkObject) {
+              // 检查是否勾选了保留链接
+              if (keepLinks[key]) {
+                // 勾选了保留链接：将文本框的新值放入链接对象的_text中
+                submitData[key] = {
+                  ...currentData.data[key],
+                  _text: newValue || currentData.data[key]._text // 使用新值或保留原文本
+                }
+              } else {
+                // 未勾选保留链接：直接把文本框的新值放入数据库，而非再次变成对象
+                submitData[key] = newValue || ''
+              }
+            }
+          })
+        }
+        
         // 添加模式
         response = await axios.post(`/api/v1/tables/${selectedTable.id}/data`, {
           data: submitData
@@ -1033,6 +1170,23 @@ const DataManagement = () => {
               }}
             >
               {isMobile ? '编辑' : '编辑'}
+            </Button>
+          )}
+          {(userRole === 'admin' || userRole === 'leader') && (
+            <Button 
+              type="default" 
+              icon={<CopyOutlined />} 
+              size={isMobile ? 'small' : 'middle'} 
+              onClick={() => showModal(record, true)}
+              className="action-button"
+              style={{ 
+                padding: isMobile ? '2px 8px' : '4px 12px', 
+                margin: isMobile ? '2px 0' : '0',
+                fontSize: isMobile ? '11px' : '13px',
+                minWidth: isMobile ? 60 : 80
+              }}
+            >
+              {isMobile ? '复制' : '复制'}
             </Button>
           )}
           {(userRole === 'admin' || userRole === 'leader') && (
