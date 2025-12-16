@@ -47,6 +47,11 @@ const DataManagement = () => {
   })
   const [isAllColumnsChecked, setIsAllColumnsChecked] = useState(true)
   
+  // 快捷导入相关状态
+  const [quickImportText, setQuickImportText] = useState('')
+  const [parseMessage, setParseMessage] = useState('')
+  const [parseError, setParseError] = useState('')
+  
   // 搜索功能相关状态 - 改为基于表格ID的独立存储
   const [searchStates, setSearchStates] = useState({})
   
@@ -158,6 +163,15 @@ const DataManagement = () => {
   useEffect(() => {
     fetchData()
   }, [selectedTable, page, pageSize])
+  
+  // 当模态框关闭时清空快捷导入相关状态
+  useEffect(() => {
+    if (!isModalVisible) {
+      setQuickImportText('');
+      setParseMessage('');
+      setParseError('');
+    }
+  }, [isModalVisible])
 
   // 初始化可见列状态，优先从本地存储恢复，其次使用数据库中定义的dropDown属性
   useEffect(() => {
@@ -1231,6 +1245,160 @@ const DataManagement = () => {
     return { visibleColumns: visibleColumnsList, hiddenColumns: allHiddenColumns }
   }
 
+  // 解析输入数据
+  const parseInputData = (inputText) => {
+    if (!inputText.trim()) return null;
+    
+    let parsedData = null;
+    let parseMethod = '';
+    
+    // 尝试解析JSON格式
+    try {
+      parsedData = JSON.parse(inputText);
+      parseMethod = 'JSON';
+    } catch (e) {
+      // 尝试解析YAML格式（简单实现，仅支持基本键值对）
+      try {
+        const lines = inputText.trim().split('\n');
+        parsedData = {};
+        let inObject = false;
+        
+        for (const line of lines) {
+          const trimmedLine = line.trim();
+          if (!trimmedLine || trimmedLine.startsWith('#')) continue;
+          
+          if (trimmedLine === '{') {
+            inObject = true;
+            continue;
+          } else if (trimmedLine === '}') {
+            inObject = false;
+            break;
+          }
+          
+          const colonIndex = trimmedLine.indexOf(':');
+          if (colonIndex > 0) {
+            const key = trimmedLine.substring(0, colonIndex).trim().replace(/^['"]|['"]$/g, '');
+            const value = trimmedLine.substring(colonIndex + 1).trim().replace(/^['"]|['"]$/g, '');
+            parsedData[key] = value;
+          }
+        }
+        parseMethod = 'YAML';
+      } catch (e) {
+        // 尝试解析XML格式（简单实现，仅支持基本键值对）
+        try {
+          const parser = new DOMParser();
+          const xmlDoc = parser.parseFromString(inputText, 'text/xml');
+          const root = xmlDoc.documentElement;
+          parsedData = {};
+          
+          for (let i = 0; i < root.children.length; i++) {
+            const child = root.children[i];
+            parsedData[child.tagName] = child.textContent;
+          }
+          parseMethod = 'XML';
+        } catch (e) {
+          // 尝试解析Excel复制的文本格式（制表符分隔或逗号分隔）
+          try {
+            const lines = inputText.trim().split('\n').filter(line => line.trim());
+            if (lines.length >= 2) {
+              // 假设第一行是表头，第二行是数据
+              const headers = lines[0].split(/[\t,]/).map(header => header.trim());
+              const values = lines[1].split(/[\t,]/).map(value => value.trim());
+              
+              parsedData = {};
+              for (let i = 0; i < headers.length; i++) {
+                parsedData[headers[i]] = values[i] || '';
+              }
+              parseMethod = 'Excel';
+            }
+          } catch (e) {
+            return null;
+          }
+        }
+      }
+    }
+    
+    return parsedData;
+  };
+  
+  // 处理快捷导入
+  const handleQuickImport = () => {
+    if (!quickImportText.trim()) {
+      setParseError('请输入要解析的数据');
+      setParseMessage('');
+      return;
+    }
+    
+    if (!selectedTable || !Array.isArray(selectedTable.columns)) {
+      setParseError('请先选择一个表格');
+      setParseMessage('');
+      return;
+    }
+    
+    // 解析输入数据
+    const parsedData = parseInputData(quickImportText);
+    if (!parsedData || typeof parsedData !== 'object') {
+      setParseError('无法解析输入数据，请检查格式');
+      setParseMessage('');
+      return;
+    }
+    
+    // 获取当前表格的列名
+    const columnNames = selectedTable.columns
+      .filter(column => !column.autoIncrement) // 排除自增列
+      .map(column => column.column_name);
+    
+    // 准备要填充的数据
+    const formData = {};
+    const missingColumns = [];
+    const extraColumns = [];
+    
+    // 检查缺失的列
+    columnNames.forEach(columnName => {
+      if (parsedData[columnName] !== undefined) {
+        formData[columnName] = parsedData[columnName];
+      } else {
+        missingColumns.push(columnName);
+      }
+    });
+    
+    // 检查多余的列
+    Object.keys(parsedData).forEach(key => {
+      if (!columnNames.includes(key)) {
+        extraColumns.push(key);
+      }
+    });
+    
+    // 填充表单数据
+    form.setFieldsValue(formData);
+    
+    // 生成提示信息
+    let missingMessage = '';
+    let extraMessage = '';
+    let successMessage = '';
+    
+    if (missingColumns.length > 0) {
+      missingMessage = `缺少字段：${missingColumns.join('、')}`;
+    }
+    
+    if (extraColumns.length > 0) {
+      extraMessage = `多余字段：${extraColumns.join('、')}`;
+    }
+    
+    if (missingColumns.length === 0 && extraColumns.length === 0) {
+      successMessage = '解析成功，所有字段已填充';
+    } else if (missingColumns.length === 0) {
+      successMessage = '解析成功，所有必填字段已填充';
+    } else if (extraColumns.length === 0) {
+      successMessage = '解析成功，所有提供的字段已填充';
+    } else {
+      successMessage = '解析成功，部分字段已填充';
+    }
+    
+    setParseMessage({ successMessage, missingMessage, extraMessage });
+    setParseError('');
+  };
+  
   // 生成表单字段
   const generateFormItems = () => {
     if (!selectedTable || !Array.isArray(selectedTable.columns)) return null
@@ -1600,6 +1768,88 @@ const DataManagement = () => {
           layout="vertical"
           onFinish={handleSubmit}
         >
+          {/* 快捷导入区域 */}
+          {!isEditMode && (
+            <div style={{ marginBottom: 24, padding: 16, backgroundColor: '#fafafa', borderRadius: 8, border: '1px dashed #d9d9d9' }}>
+              <h4 style={{ marginBottom: 12, color: '#333' }}>快捷导入</h4>
+              <p style={{ marginBottom: 12, fontSize: 12, color: '#666' }}>支持JSON、YAML、XML和Excel复制文本格式，自动解析并填充表单</p>
+              
+              <div style={{ marginBottom: 12 }}>
+                <textarea
+                  placeholder='请输入要解析的数据，例如：{"名称":"测试产品","公司名称":"测试公司"}' 
+                  style={{
+                    width: '100%',
+                    height: 120,
+                    padding: 8,
+                    fontSize: 12,
+                    border: '1px solid #d9d9d9',
+                    borderRadius: 4,
+                    resize: 'vertical',
+                    fontFamily: 'monospace'
+                  }}
+                  value={quickImportText}
+                  onChange={(e) => setQuickImportText(e.target.value)}
+                  onFocus={() => {
+                    setParseMessage('');
+                    setParseError('');
+                  }}
+                />
+              </div>
+              
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Button 
+                  type="default" 
+                  onClick={handleQuickImport}
+                  style={{ fontSize: 12 }}
+                >
+                  解析
+                </Button>
+                
+                <Button 
+                  type="link" 
+                  onClick={() => {
+                    setQuickImportText('');
+                    setParseMessage('');
+                    setParseError('');
+                  }}
+                  style={{ fontSize: 12, padding: 0 }}
+                >
+                  清空
+                </Button>
+              </div>
+              
+              {/* 解析结果提示 */}
+              {parseError && (
+                <div style={{ marginTop: 12, color: '#ff4d4f', fontSize: 12 }}>
+                  {parseError}
+                </div>
+              )}
+              
+              {parseMessage && (
+                <div style={{ marginTop: 12 }}>
+                  {/* 成功提示 */}
+                  <div style={{ fontSize: 12, color: '#52c41a', marginBottom: 4 }}>
+                    {parseMessage.successMessage}
+                  </div>
+                  
+                  {/* 缺少字段提示 - 红色 */}
+                  {parseMessage.missingMessage && (
+                    <div style={{ fontSize: 12, color: '#ff4d4f', marginBottom: 4 }}>
+                      {parseMessage.missingMessage}
+                    </div>
+                  )}
+                  
+                  {/* 多余字段提示 - 绿色 */}
+                  {parseMessage.extraMessage && (
+                    <div style={{ fontSize: 12, color: '#52c41a', marginBottom: 4 }}>
+                      {parseMessage.extraMessage}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+          
           {generateFormItems()}
           <Form.Item style={{ display: 'flex', justifyContent: 'flex-end' }}>
             <Space>
