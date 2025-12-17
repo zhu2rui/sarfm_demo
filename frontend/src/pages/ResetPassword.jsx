@@ -61,9 +61,9 @@ const ResetPassword = () => {
       
       if (response.data.code === 200) {
         message.success(response.data.message)
-        // 延迟后重定向到登录页面
+        // 延迟后重定向到登录页面，并将用户名作为URL参数传递
         setTimeout(() => {
-          navigate('/login')
+          navigate(`/login?username=${encodeURIComponent(username)}`)
         }, 1500)
       } else {
         message.error(response.data.message)

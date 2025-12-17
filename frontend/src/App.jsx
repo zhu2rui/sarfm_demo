@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Layout, Menu, Button, Form, Input, Card, Typography, message, Checkbox, Select } from 'antd'
 import { UserOutlined, LockOutlined, DatabaseOutlined, BarChartOutlined, MenuOutlined } from '@ant-design/icons'
-import { BrowserRouter as Router, Routes, Route, Navigate, Link, useNavigate } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route, Navigate, Link, useNavigate, useLocation } from 'react-router-dom'
 import axios from 'axios'
 import TableDefinition from './pages/TableDefinition'
 import DefinedTables from './pages/DefinedTables'
@@ -56,6 +56,17 @@ const Login = ({ setIsLoggedIn, t }) => {
   const [password, setPassword] = useState('')
   const [form] = Form.useForm()
   const navigate = useNavigate()
+  const location = useLocation()
+
+  // 从URL参数中获取用户名并填充到表单
+  useEffect(() => {
+    const searchParams = new URLSearchParams(location.search)
+    const usernameFromUrl = searchParams.get('username')
+    if (usernameFromUrl) {
+      setUsername(usernameFromUrl)
+      form.setFieldsValue({ username: usernameFromUrl })
+    }
+  }, [location.search, form])
 
   const handleLogin = async (values) => {
     try {

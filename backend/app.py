@@ -915,8 +915,8 @@ def update_inventory_data(current_user, table_id, data_id):
     if not table:
         return jsonify({'code': 404, 'message': '表格结构不存在', 'data': None}), 404
     
-    # 检查用户权限，只有管理员和组长可以修改数据
-    if current_user.role not in ['admin', 'leader']:
+    # 检查用户权限，管理员、组长和组员都可以修改数据
+    if current_user.role not in ['admin', 'leader', 'member']:
         return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
     
     # 获取库存数据

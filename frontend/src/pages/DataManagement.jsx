@@ -1155,7 +1155,7 @@ const DataManagement = () => {
             flexWrap: 'nowrap' // 所有设备都禁止换行，确保按钮在同一水平线上
           }}
         >
-          {(userRole === 'admin' || userRole === 'leader') && (
+          {(userRole === 'admin' || userRole === 'leader' || userRole === 'member') && (
             <Button 
               type="primary" 
               icon={<EditOutlined />} 
@@ -1172,7 +1172,7 @@ const DataManagement = () => {
               {isMobile ? '编辑' : '编辑'}
             </Button>
           )}
-          {(userRole === 'admin' || userRole === 'leader') && (
+          {(userRole === 'admin' || userRole === 'leader' || userRole === 'member') && (
             <Button 
               type="default" 
               icon={<CopyOutlined />} 
