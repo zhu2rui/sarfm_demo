@@ -383,18 +383,41 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn, t, lang, changeLang }) => {
                               // 导出所有数据
                               axios.get('/api/v1/export-all-data', { responseType: 'blob' })
                                 .then(response => {
-                                  const url = window.URL.createObjectURL(new Blob([response.data]));
-                                  const link = document.createElement('a');
-                                  link.href = url;
-                                  link.setAttribute('download', 'all_data.xlsx');
-                                  document.body.appendChild(link);
-                                  link.click();
-                                  link.remove();
-                                  message.success(t('dataManagement.successAdd'));
+                                  // 检查响应状态码
+                                  if (response.status === 200) {
+                                    // 是Excel文件，正常处理下载
+                                    const url = window.URL.createObjectURL(response.data);
+                                    const link = document.createElement('a');
+                                    link.href = url;
+                                    link.setAttribute('download', 'all_data.xlsx');
+                                    document.body.appendChild(link);
+                                    link.click();
+                                    link.remove();
+                                    message.success('所有数据导出成功');
+                                  } else {
+                                    // 处理非200状态码
+                                    message.error(`导出失败，错误码: ${response.status}`);
+                                  }
                                 })
                                 .catch(error => {
                                   console.error('Export error:', error);
-                                  message.error(t('dataManagement.successAdd'));
+                                  // 处理不同类型的错误
+                                  if (error.response) {
+                                    // 服务器返回错误状态码
+                                    if (error.response.status === 403) {
+                                      message.error('权限不足，只有管理员可以执行此操作');
+                                    } else if (error.response.status === 500) {
+                                      message.error('服务器内部错误，请联系管理员');
+                                    } else {
+                                      message.error(`导出失败，错误码: ${error.response.status}`);
+                                    }
+                                  } else if (error.request) {
+                                    // 请求已发送但没有收到响应
+                                    message.error('网络异常，服务器没有响应，请检查网络连接');
+                                  } else {
+                                    // 请求配置错误
+                                    message.error(`导出失败: ${error.message}`);
+                                  }
                                 });
                             }
                           },
@@ -554,18 +577,41 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn, t, lang, changeLang }) => {
                                 setMobileMenuVisible(false);
                                 axios.get('/api/v1/export-all-data', { responseType: 'blob' })
                                   .then(response => {
-                                    const url = window.URL.createObjectURL(new Blob([response.data]));
-                                    const link = document.createElement('a');
-                                    link.href = url;
-                                    link.setAttribute('download', 'all_data.xlsx');
-                                    document.body.appendChild(link);
-                                    link.click();
-                                    link.remove();
-                                    message.success(t('dataManagement.successAdd'));
+                                    // 检查响应状态码
+                                    if (response.status === 200) {
+                                      // 是Excel文件，正常处理下载
+                                      const url = window.URL.createObjectURL(response.data);
+                                      const link = document.createElement('a');
+                                      link.href = url;
+                                      link.setAttribute('download', 'all_data.xlsx');
+                                      document.body.appendChild(link);
+                                      link.click();
+                                      link.remove();
+                                      message.success('所有数据导出成功');
+                                    } else {
+                                      // 处理非200状态码
+                                      message.error(`导出失败，错误码: ${response.status}`);
+                                    }
                                   })
                                   .catch(error => {
                                     console.error('Export error:', error);
-                                    message.error(t('dataManagement.successAdd'));
+                                    // 处理不同类型的错误
+                                    if (error.response) {
+                                      // 服务器返回错误状态码
+                                      if (error.response.status === 403) {
+                                        message.error('权限不足，只有管理员可以执行此操作');
+                                      } else if (error.response.status === 500) {
+                                        message.error('服务器内部错误，请联系管理员');
+                                      } else {
+                                        message.error(`导出失败，错误码: ${error.response.status}`);
+                                      }
+                                    } else if (error.request) {
+                                      // 请求已发送但没有收到响应
+                                      message.error('网络异常，服务器没有响应，请检查网络连接');
+                                    } else {
+                                      // 请求配置错误
+                                      message.error(`导出失败: ${error.message}`);
+                                    }
                                   });
                               }
                             },

@@ -1335,52 +1335,108 @@ def export_all_data(current_user):
         return jsonify({'code': 403, 'message': '权限不足，只有管理员可以执行此操作', 'data': None}), 403
     
     try:
+        print("开始执行导出所有数据功能")
         from io import BytesIO
         from openpyxl import Workbook
         
         # 创建工作簿
         wb = Workbook()
+        print("成功创建工作簿")
         
         # 获取所有表格结构
         tables = TableStructure.query.all()
+        print(f"成功获取{len(tables)}个表格结构")
         
         if not tables:
+            print("没有可导出的表格数据")
             return jsonify({'code': 400, 'message': '没有可导出的表格数据', 'data': None}), 400
         
         # 删除默认工作表
-        wb.remove(wb.active)
+        # 遍历所有工作表，删除名称为'Sheet'或'Sheet1'的默认工作表
+        for sheet in wb.sheetnames:
+            if sheet in ['Sheet', 'Sheet1']:
+                del wb[sheet]
+                print(f"成功删除默认工作表: {sheet}")
+                break
         
         # 为每个表格创建一个工作表
-        exported_tables = []
         for table in tables:
-            # 创建工作表
-            ws = wb.create_sheet(title=table.table_name)
-            exported_tables.append(table.table_name)
+            table_name = table.table_name
+            print(f"处理表格: {table_name} (ID: {table.id})")
             
-            # 获取表格数据和列配置
+            # 创建工作表，确保工作表名称不超过31个字符
+            sheet_name = table_name[:31]
+            ws = wb.create_sheet(title=sheet_name)
+            print(f"成功创建工作表: {sheet_name}")
+            
+            # 获取表格数据
             all_data = InventoryData.query.filter_by(table_id=table.id).all()
-            columns = json.loads(table.columns)
+            print(f"成功获取表格{table_name}的{len(all_data)}条数据")
+            
+            # 解析columns
+            try:
+                columns = json.loads(table.columns)
+                print(f"成功解析表格{table_name}的columns: {len(columns)}列")
+            except json.JSONDecodeError as e:
+                print(f"解析表格{table_name}的columns失败: {str(e)}")
+                print(f"columns原始内容: {table.columns}")
+                continue  # 跳过无法解析columns的表格
             
             # 生成表头，包含所有列名和创建时间
             headers = [col['column_name'] for col in columns] + ['创建时间']
             ws.append(headers)
+            print(f"成功写入表头: {headers}")
             
             # 写数据行
-            for item in all_data:
-                item_data = json.loads(item.data)
-                # 处理数据行
-                row = []
-                for col in columns:
-                    value = item_data.get(col['column_name'], '')
-                    row.append(value)
-                # 添加创建时间
-                row.append(item.created_at.strftime('%Y-%m-%d %H:%M:%S'))
-                ws.append(row)
+            for i, item in enumerate(all_data):
+                try:
+                    print(f"处理表格{table_name}的数据行 {i+1}/{len(all_data)}")
+                    
+                    # 将JSON字符串转换为Python对象
+                    item_data = json.loads(item.data)
+                    
+                    # 处理数据行
+                    row = []
+                    for col in columns:
+                        value = item_data.get(col['column_name'], '')
+                        # 确保value不是None
+                        if value is None:
+                            value = ''
+                        
+                        # 处理链接对象，提取文本部分
+                        if isinstance(value, dict):
+                            # 如果是链接对象，提取_text属性
+                            if '_text' in value:
+                                value = value['_text']
+                            else:
+                                # 其他字典类型，转换为JSON字符串
+                                value = json.dumps(value)
+                        
+                        # 确保value是基本类型，可被Excel处理
+                        if not isinstance(value, (str, int, float, bool)):
+                            value = str(value)
+                        
+                        row.append(value)
+                    
+                    # 添加创建时间
+                    row.append(item.created_at.strftime('%Y-%m-%d %H:%M:%S'))
+                    ws.append(row)
+                    print(f"成功写入表格{table_name}的数据行 {i+1}")
+                except Exception as e:
+                    print(f"处理表格{table_name}的数据行 {i+1}失败: {str(e)}")
+                    # 打印详细错误信息，便于调试
+                    print(f"数据行原始内容: {item.data}")
+                    import traceback
+                    traceback.print_exc()
+                    continue  # 跳过无法处理的数据行
+            
+            print(f"成功写入表格{table_name}的所有数据")
         
         # 将工作簿保存到BytesIO对象
         output = BytesIO()
         wb.save(output)
         output.seek(0)
+        print("成功保存工作簿到BytesIO对象")
         
         # 记录操作日志
         log = OperationLog(
@@ -1391,21 +1447,25 @@ def export_all_data(current_user):
         )
         db.session.add(log)
         db.session.commit()
+        print("成功记录操作日志")
         
         # 设置响应头
         from flask import Response
+        print("准备返回响应")
         return Response(
             output.getvalue(),
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             headers={
                 'Content-Disposition': 'attachment; filename="all_data.xlsx"',
-                'Content-Length': str(len(output.getvalue())),
             }
         )
     except Exception as e:
         import traceback
-        print(f"导出所有数据发生错误: {traceback.format_exc()}")
-        return jsonify({'code': 500, 'message': f'导出所有数据失败: {str(e)}', 'data': None}), 500
+        error_msg = f"导出所有数据发生错误: {str(e)}"
+        error_trace = traceback.format_exc()
+        print(error_msg)
+        print(error_trace)
+        return jsonify({'code': 500, 'message': '服务器内部错误，请联系管理员', 'data': None}), 500
 
 # 数据导入API - 从XLS文件导入数据
 @app.route('/api/v1/import-data', methods=['POST'])
