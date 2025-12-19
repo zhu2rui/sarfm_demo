@@ -18,7 +18,9 @@ const UserManagement = () => {
     try {
       const response = await axios.get('/api/v1/users')
       if (response.data.code === 200) {
-        setUsers(response.data.data.items)
+        // 过滤掉admin用户，不显示在用户管理中
+        const filteredUsers = response.data.data.items.filter(user => user.username !== 'admin')
+        setUsers(filteredUsers)
       } else {
         message.error(response.data.message)
       }

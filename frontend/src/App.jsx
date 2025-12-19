@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
-import { Layout, Menu, Button, Form, Input, Card, Typography, message, Checkbox, Select } from 'antd'
-import { UserOutlined, LockOutlined, DatabaseOutlined, BarChartOutlined, MenuOutlined } from '@ant-design/icons'
+import { Layout, Menu, Button, Form, Input, Card, Typography, message, Checkbox, Select, Modal, Table, Dropdown } from 'antd'
+import { UserOutlined, LockOutlined, DatabaseOutlined, BarChartOutlined, MenuOutlined, BugOutlined, CheckCircleOutlined } from '@ant-design/icons'
 import { BrowserRouter as Router, Routes, Route, Navigate, Link, useNavigate, useLocation } from 'react-router-dom'
 import axios from 'axios'
 import TableDefinition from './pages/TableDefinition'
@@ -197,6 +197,11 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn, t, lang, changeLang }) => {
   const [tables, setTables] = useState([])
   const [selectedTableId, setSelectedTableId] = useState(null)
   const [mobileMenuVisible, setMobileMenuVisible] = useState(false)
+  const [bugModalVisible, setBugModalVisible] = useState(false)
+  const [bugForm] = Form.useForm()
+  const [bugs, setBugs] = useState([])
+  const [bugListVisible, setBugListVisible] = useState(false)
+  const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
   
   // 监听路由变化，重置 selectedTableId
@@ -245,6 +250,179 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn, t, lang, changeLang }) => {
     navigate('/login')
     message.success('退出登录成功')
   }
+
+  // Bug反馈 - 显示反馈模态框
+  const showBugModal = () => {
+    setBugModalVisible(true)
+    setMobileMenuVisible(false)
+  }
+
+  // Bug反馈 - 关闭反馈模态框
+  const handleBugModalCancel = () => {
+    setBugModalVisible(false)
+    bugForm.resetFields()
+  }
+
+  // Bug反馈 - 提交反馈
+  const handleBugSubmit = async (values) => {
+    try {
+      setLoading(true)
+      const response = await axios.post('/api/v1/bugs', values)
+      if (response.data.code === 200) {
+        message.success('Bug反馈提交成功')
+        setBugModalVisible(false)
+        bugForm.resetFields()
+      } else {
+        message.error(response.data.message)
+      }
+    } catch (error) {
+      console.error('提交Bug反馈失败:', error)
+      message.error('提交Bug反馈失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Bug列表 - 显示Bug列表
+  const showBugList = async () => {
+    try {
+      setLoading(true)
+      const response = await axios.get('/api/v1/bugs')
+      if (response.data.code === 200) {
+        setBugs(response.data.data.items)
+        setBugListVisible(true)
+        setMobileMenuVisible(false)
+      } else {
+        message.error(response.data.message)
+      }
+    } catch (error) {
+      console.error('获取Bug列表失败:', error)
+      message.error('获取Bug列表失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Bug列表 - 关闭Bug列表
+  const handleBugListCancel = () => {
+    setBugListVisible(false)
+  }
+
+  // Bug列表 - 更新Bug状态
+  const handleBugStatusChange = async (bugId) => {
+    try {
+      const response = await axios.put(`/api/v1/bugs/${bugId}`)
+      if (response.data.code === 200) {
+        message.success('Bug状态更新成功')
+        // 重新获取Bug列表
+        const refreshResponse = await axios.get('/api/v1/bugs')
+        if (refreshResponse.data.code === 200) {
+          setBugs(refreshResponse.data.data.items)
+        }
+      } else {
+        message.error(response.data.message)
+      }
+    } catch (error) {
+      console.error('更新Bug状态失败:', error)
+      message.error('更新Bug状态失败')
+    }
+  }
+
+  // Bug列表 - 删除Bug
+  const handleBugDelete = async (bugId) => {
+    try {
+      const response = await axios.delete(`/api/v1/bugs/${bugId}`)
+      if (response.data.code === 200) {
+        message.success('Bug删除成功')
+        // 重新获取Bug列表
+        const refreshResponse = await axios.get('/api/v1/bugs')
+        if (refreshResponse.data.code === 200) {
+          setBugs(refreshResponse.data.data.items)
+        }
+      } else {
+        message.error(response.data.message)
+      }
+    } catch (error) {
+      console.error('删除Bug失败:', error)
+      message.error('删除Bug失败')
+    }
+  }
+
+  // Bug列表 - 表格列配置
+  const bugColumns = [
+    {
+      title: '标题',
+      dataIndex: 'title',
+      key: 'title',
+      render: (text, record) => (
+        <span style={{ textDecoration: record.is_resolved ? 'line-through' : 'none' }}>{text}</span>
+      )
+    },
+    {
+      title: '内容',
+      dataIndex: 'content',
+      key: 'content',
+      render: (text, record) => (
+        <span style={{ textDecoration: record.is_resolved ? 'line-through' : 'none' }}>{text}</span>
+      )
+    },
+    {
+      title: '反馈人',
+      dataIndex: 'reporter_username',
+      key: 'reporter_username',
+      render: (text, record) => (
+        <span style={{ textDecoration: record.is_resolved ? 'line-through' : 'none' }}>{text}</span>
+      )
+    },
+    {
+      title: '创建时间',
+      dataIndex: 'created_at',
+      key: 'created_at',
+      render: (text, record) => (
+        <span style={{ textDecoration: record.is_resolved ? 'line-through' : 'none' }}>{text}</span>
+      )
+    },
+    {
+      title: '状态',
+      key: 'is_resolved',
+      render: (_, record) => (
+        <span style={{ textDecoration: record.is_resolved ? 'line-through' : 'none' }}>
+          {record.is_resolved ? '已解决' : '未解决'}
+        </span>
+      )
+    },
+    {
+      title: '操作',
+      key: 'action',
+      render: (_, record) => {
+        const user = JSON.parse(localStorage.getItem('user'));
+        return user && user.username === 'admin' ? (
+          <Checkbox
+            checked={record.is_resolved}
+            onChange={() => handleBugStatusChange(record.id)}
+            icon={<CheckCircleOutlined />}
+          />
+        ) : null;
+      }
+    },
+    {
+      title: '删除',
+      key: 'delete',
+      render: (_, record) => {
+        const user = JSON.parse(localStorage.getItem('user'));
+        return user && user.username === 'admin' ? (
+          <Button
+            type="text"
+            danger
+            size="small"
+            onClick={() => handleBugDelete(record.id)}
+          >
+            删除
+          </Button>
+        ) : null;
+      }
+    }
+  ]
 
   // 处理表格点击
   const handleTableClick = (tableId) => {
@@ -445,7 +623,7 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn, t, lang, changeLang }) => {
                                 if (file) {
                                   const formData = new FormData();
                                   formData.append('file', file);
-                                    
+                                     
                                   axios.post('/api/v1/import-data', formData, {
                                     headers: {
                                       'Content-Type': 'multipart/form-data'
@@ -472,7 +650,23 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn, t, lang, changeLang }) => {
                         ];
                       }
                       return [];
-                    })()
+                    })(),
+                    {
+                      key: '6-3',
+                      icon: <BugOutlined />,
+                      label: (
+                        <span
+                          style={{ cursor: 'pointer' }}
+                          onClick={showBugModal}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            showBugList();
+                          }}
+                        >
+                          Bug反馈
+                        </span>
+                      )
+                    }
                   ]
                 }
               ]} />
@@ -640,7 +834,7 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn, t, lang, changeLang }) => {
                                   if (file) {
                                     const formData = new FormData();
                                     formData.append('file', file);
-                                      
+                                       
                                     axios.post('/api/v1/import-data', formData, {
                                       headers: {
                                         'Content-Type': 'multipart/form-data'
@@ -667,7 +861,23 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn, t, lang, changeLang }) => {
                           ];
                         }
                         return [];
-                      })()
+                      })(),
+                      {
+                        key: 'm6-3',
+                        icon: <BugOutlined />,
+                        label: (
+                          <span
+                            style={{ cursor: 'pointer' }}
+                            onClick={showBugModal}
+                            onContextMenu={(e) => {
+                              e.preventDefault();
+                              showBugList();
+                            }}
+                          >
+                            Bug反馈
+                          </span>
+                        )
+                      }
                     ]
                   }
                 ]} />
@@ -715,6 +925,67 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn, t, lang, changeLang }) => {
             />
           )}
         </Layout>
+
+        {/* Bug反馈模态框 */}
+        <Modal
+          title="Bug反馈"
+          open={bugModalVisible}
+          onCancel={handleBugModalCancel}
+          footer={null}
+          destroyOnHidden
+        >
+          <Form
+            form={bugForm}
+            layout="vertical"
+            onFinish={handleBugSubmit}
+          >
+            <Form.Item
+              name="title"
+              label="标题"
+              rules={[{ required: true, message: '请输入Bug标题' }]}
+            >
+              <Input placeholder="请输入Bug标题" />
+            </Form.Item>
+
+            <Form.Item
+              name="content"
+              label="内容"
+              rules={[{ required: true, message: '请输入Bug详细描述' }]}
+            >
+              <Input.TextArea
+                placeholder="请详细描述您遇到的Bug，包括操作步骤、预期结果和实际结果"
+                rows={6}
+              />
+            </Form.Item>
+
+            <Form.Item style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <Button onClick={handleBugModalCancel} style={{ marginRight: 8 }}>
+                取消
+              </Button>
+              <Button type="primary" htmlType="submit" loading={loading}>
+                提交反馈
+              </Button>
+            </Form.Item>
+          </Form>
+        </Modal>
+
+        {/* Bug列表模态框 */}
+        <Modal
+          title="Bug列表"
+          open={bugListVisible}
+          onCancel={handleBugListCancel}
+          footer={null}
+          width={800}
+          destroyOnHidden
+        >
+          <Table
+            columns={bugColumns}
+            dataSource={bugs}
+            rowKey="id"
+            loading={loading}
+            pagination={false}
+          />
+        </Modal>
       </Layout>
     </TableContext.Provider>
   )

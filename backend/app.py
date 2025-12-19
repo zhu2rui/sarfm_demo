@@ -142,6 +142,16 @@ class AutoIncrementSequence(db.Model):
     # 唯一约束，确保每个表格的每列只有一个自增序列
     __table_args__ = (db.UniqueConstraint('table_id', 'column_name', name='_table_column_unique'),)
 
+# Bug反馈模型
+class BugReport(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(255), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    reporter_username = db.Column(db.String(50), nullable=False)
+    is_resolved = db.Column(db.Boolean, default=False, nullable=False)
+    created_at = db.Column(db.DateTime, default=db.func.now())
+    updated_at = db.Column(db.DateTime, default=db.func.now(), onupdate=db.func.now())
+
 # JWT认证装饰器
 def token_required(f):
     @wraps(f)
@@ -193,6 +203,12 @@ with app.app_context():
     if not member_user:
         member = User(username='member', password=generate_password_hash('member123'), role='member')
         db.session.add(member)
+    
+    # 创建测试机器人账号
+    testbot_user = User.query.filter_by(username='testbot_playwright').first()
+    if not testbot_user:
+        testbot = User(username='testbot_playwright', password=generate_password_hash('000000'), role='member')
+        db.session.add(testbot)
     
     db.session.commit()
 
@@ -580,6 +596,10 @@ def delete_user(current_user, user_id):
     user = User.query.get(user_id)
     if not user:
         return jsonify({'code': 404, 'message': '用户不存在', 'data': None}), 404
+    
+    # 不能删除admin用户
+    if user.username == 'admin':
+        return jsonify({'code': 400, 'message': '不能删除admin用户', 'data': None}), 400
     
     try:
         db.session.delete(user)
@@ -1315,6 +1335,122 @@ def import_table_data(current_user, table_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'code': 500, 'message': f'数据导入失败: {str(e)}', 'data': None}), 500
+
+# Bug反馈API - 提交Bug
+@app.route('/api/v1/bugs', methods=['POST'])
+@token_required
+def submit_bug(current_user):
+    data = request.get_json()
+    title = data.get('title')
+    content = data.get('content')
+    
+    if not title or not content:
+        return jsonify({'code': 400, 'message': '标题和内容不能为空', 'data': None}), 400
+    
+    try:
+        new_bug = BugReport(
+            title=title,
+            content=content,
+            reporter_username=current_user.username
+        )
+        db.session.add(new_bug)
+        db.session.commit()
+        return jsonify({
+            'code': 200,
+            'message': 'Bug反馈提交成功',
+            'data': {
+                'id': new_bug.id,
+                'title': new_bug.title,
+                'content': new_bug.content,
+                'reporter_username': new_bug.reporter_username,
+                'is_resolved': new_bug.is_resolved,
+                'created_at': new_bug.created_at.strftime('%Y-%m-%d %H:%M:%S')
+            }
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'code': 500, 'message': f'提交Bug失败: {str(e)}', 'data': None}), 500
+
+# Bug反馈API - 获取所有Bug列表
+@app.route('/api/v1/bugs', methods=['GET'])
+@token_required
+def get_bugs(current_user):
+    # 所有人都可以查看Bug列表
+    try:
+        bugs = BugReport.query.all()
+        bugs_data = []
+        for bug in bugs:
+            bugs_data.append({
+                'id': bug.id,
+                'title': bug.title,
+                'content': bug.content,
+                'reporter_username': bug.reporter_username,
+                'is_resolved': bug.is_resolved,
+                'created_at': bug.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+                'updated_at': bug.updated_at.strftime('%Y-%m-%d %H:%M:%S')
+            })
+        
+        return jsonify({
+            'code': 200,
+            'message': 'success',
+            'data': {
+                'items': bugs_data,
+                'total': len(bugs_data)
+            }
+        }), 200
+    except Exception as e:
+        return jsonify({'code': 500, 'message': f'获取Bug列表失败: {str(e)}', 'data': None}), 500
+
+# Bug反馈API - 更新Bug状态
+@app.route('/api/v1/bugs/<int:bug_id>', methods=['PUT'])
+@token_required
+def update_bug(current_user, bug_id):
+    # 只有admin可以更新Bug状态
+    if current_user.username != 'admin':
+        return jsonify({'code': 403, 'message': '权限不足，只有admin用户可以更新Bug状态', 'data': None}), 403
+    
+    bug = BugReport.query.get(bug_id)
+    if not bug:
+        return jsonify({'code': 404, 'message': 'Bug不存在', 'data': None}), 404
+    
+    try:
+        bug.is_resolved = not bug.is_resolved
+        db.session.commit()
+        return jsonify({
+            'code': 200,
+            'message': 'Bug状态更新成功',
+            'data': {
+                'id': bug.id,
+                'is_resolved': bug.is_resolved
+            }
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'code': 500, 'message': f'更新Bug状态失败: {str(e)}', 'data': None}), 500
+
+# Bug反馈API - 删除Bug
+@app.route('/api/v1/bugs/<int:bug_id>', methods=['DELETE'])
+@token_required
+def delete_bug(current_user, bug_id):
+    # 只有admin可以删除Bug
+    if current_user.username != 'admin':
+        return jsonify({'code': 403, 'message': '权限不足，只有admin用户可以删除Bug', 'data': None}), 403
+    
+    bug = BugReport.query.get(bug_id)
+    if not bug:
+        return jsonify({'code': 404, 'message': 'Bug不存在', 'data': None}), 404
+    
+    try:
+        db.session.delete(bug)
+        db.session.commit()
+        return jsonify({
+            'code': 200,
+            'message': 'Bug删除成功',
+            'data': None
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'code': 500, 'message': f'删除Bug失败: {str(e)}', 'data': None}), 500
 
 # 数据导出API - 将所有表格数据导出为XLS文件
 @app.route('/api/v1/export-all-data', methods=['GET'])
