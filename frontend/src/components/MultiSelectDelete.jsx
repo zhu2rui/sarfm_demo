@@ -44,6 +44,16 @@ const MultiSelectDelete = ({
   const [selectedCellInfo, setSelectedCellInfo] = useState({ record: null, column: null })
   const [isMobileLongPress, setIsMobileLongPress] = useState(false)
   const longPressTimer = useRef(null)
+  // 表头右键菜单相关状态
+  const [headerContextMenuVisible, setHeaderContextMenuVisible] = useState(false)
+  const [headerContextMenuPosition, setHeaderContextMenuPosition] = useState({ x: 0, y: 0 })
+  const [selectedHeaderColumn, setSelectedHeaderColumn] = useState(null)
+  // 存储哪些列需要显示字符长度列，格式：{ tableId: { columnKey: true/false } }
+  const [showCharacterLengthColumns, setShowCharacterLengthColumns] = useState(() => {
+    // 从localStorage恢复状态
+    const saved = localStorage.getItem('showCharacterLengthColumns')
+    return saved ? JSON.parse(saved) : {}
+  })
   // 链接网页功能相关状态
   const [linkModalVisible, setLinkModalVisible] = useState(false)
   const [linkUrl, setLinkUrl] = useState('')
@@ -713,6 +723,32 @@ const MultiSelectDelete = ({
     }
   ]
   
+  // 处理表头右键点击事件
+  const handleHeaderContextMenu = (e, column) => {
+    e.preventDefault()
+    setSelectedHeaderColumn(column)
+    setHeaderContextMenuPosition({ x: e.clientX, y: e.clientY })
+    setHeaderContextMenuVisible(true)
+  }
+  
+  // 处理表头菜单点击事件
+  const handleHeaderMenuClick = (e) => {
+    const { key } = e
+    if (key === 'show-character-length') {
+      handleToggleCharacterLength()
+    }
+    setHeaderContextMenuVisible(false)
+  }
+  
+  // 表头右键菜单内容
+  const headerContextMenuItems = [
+    {
+      label: '显示字符长度',
+      key: 'show-character-length',
+      onClick: handleHeaderMenuClick
+    }
+  ]
+  
   // 处理右键点击事件
   const handleContextMenu = (e, value, record, column) => {
     e.preventDefault()
@@ -741,7 +777,39 @@ const MultiSelectDelete = ({
   // 处理点击事件，关闭菜单
   const handleClick = () => {
     setContextMenuVisible(false)
+    setHeaderContextMenuVisible(false)
     setIsMobileLongPress(false)
+  }
+  
+  // 处理显示/隐藏字符长度列
+  const handleToggleCharacterLength = () => {
+    if (!selectedHeaderColumn) return
+    
+    // 获取表格ID
+    const tableId = dataSource.length > 0 ? dataSource[0].table_id : 'default'
+    // 获取当前列的key
+    const columnKey = selectedHeaderColumn.key || selectedHeaderColumn.dataIndex
+    
+    // 更新状态
+    setShowCharacterLengthColumns(prev => {
+      // 确保每个表格都有独立的配置
+      const tableConfig = prev[tableId] || {}
+      // 切换状态
+      const newConfig = {
+        ...tableConfig,
+        [columnKey]: !tableConfig[columnKey]
+      }
+      
+      const newState = {
+        ...prev,
+        [tableId]: newConfig
+      }
+      
+      // 保存到localStorage
+      localStorage.setItem('showCharacterLengthColumns', JSON.stringify(newState))
+      
+      return newState
+    })
   }
   
   // 添加全局点击事件监听，用于关闭菜单
@@ -1219,29 +1287,54 @@ const MultiSelectDelete = ({
   // 合并列配置，确保至少有选择列
   const mergedColumns = [
     selectionColumn, 
-    ...columns.map(column => {
-      const columnKey = column.key || column.dataIndex
-      const calculatedWidth = columnWidths[columnKey]
+    ...(() => {
+      const resultColumns = []
+      // 获取当前表格ID
+      const tableId = dataSource.length > 0 ? dataSource[0].table_id : 'default'
+      // 获取当前表格的字符长度显示配置
+      const tableConfig = showCharacterLengthColumns[tableId] || {}
       
-      // 创建副本以避免修改原配置
-      let newColumn = { 
-        ...column,
-        // 添加列宽拖动功能
-        resizable: true,
-        // 应用保存的列宽
-        width: calculatedWidth || column.width
-      }
-      
-      // 检查是否为创建时间列，只显示日期
-      const isCreateTimeColumn = [
-        '创建时间', 'createTime', 'created_at', 'create_at', '创建日期', 'date'
-      ].includes(columnKey) || 
-      [
-        '创建时间', '创建日期', '日期'
-      ].includes(column.title)
+      // 遍历所有列
+      columns.forEach(column => {
+        const columnKey = column.key || column.dataIndex
+        const calculatedWidth = columnWidths[columnKey]
+        
+        // 创建副本以避免修改原配置
+        let newColumn = { 
+          ...column,
+          // 添加列宽拖动功能
+          resizable: true,
+          // 应用保存的列宽
+          width: calculatedWidth || column.width
+        }
+        
+        // 检查是否为创建时间列，只显示日期
+        const isCreateTimeColumn = [
+          '创建时间', 'createTime', 'created_at', 'create_at', '创建日期', 'date'
+        ].includes(columnKey) || 
+        [
+          '创建时间', '创建日期', '日期'
+        ].includes(column.title)
       
       // 保存原始render函数
       const originalRender = column.render
+      
+      // 为表头添加右键菜单
+      newColumn.title = (
+        <div
+          onContextMenu={(e) => handleHeaderContextMenu(e, newColumn)}
+          style={{
+            cursor: 'context-menu',
+            padding: '4px',
+            borderRadius: '4px',
+            transition: 'background-color 0.2s'
+          }}
+          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f0f0f0'}
+          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+        >
+          {newColumn.title}
+        </div>
+      )
       
       // 重写render函数，添加右键菜单和长按功能
       newColumn.render = (text, record) => {
@@ -1456,8 +1549,57 @@ const MultiSelectDelete = ({
         newColumn.maxWidth = calculatedWidth * 1.2 // 允许一定的扩展空间
       }
       
-      return newColumn
+      // 检查是否需要在当前列前添加字符长度列
+      if (tableConfig[columnKey]) {
+        // 添加字符长度列
+        const lengthColumn = {
+          title: '长度→',
+          key: `${columnKey}_length`,
+          width: 60,
+          minWidth: 50,
+          maxWidth: 70,
+          align: 'center',
+          // 添加样式，使背景色为浅蓝色
+          className: 'character-length-column',
+          render: (text, record) => {
+            // 获取对应列的值
+            let actualValue = text
+            if (Array.isArray(column.dataIndex) && column.dataIndex.length > 1) {
+              let tempValue = record
+              for (const key of column.dataIndex) {
+                if (tempValue === null || tempValue === undefined) break
+                tempValue = tempValue[key]
+              }
+              actualValue = tempValue
+            } else if (column.dataIndex) {
+              actualValue = record[column.dataIndex]
+            }
+            
+            // 计算trim后的长度
+            let textValue = ''
+            if (typeof actualValue === 'object' && actualValue !== null) {
+              // 如果是链接对象，使用文本部分
+              if (actualValue._text) {
+                textValue = actualValue._text
+              } else {
+                textValue = JSON.stringify(actualValue)
+              }
+            } else if (actualValue !== null && actualValue !== undefined) {
+              textValue = String(actualValue)
+            }
+            
+            return textValue.trim().length
+          }
+        }
+        resultColumns.push(lengthColumn)
+      }
+      
+      // 添加当前列到结果数组
+      resultColumns.push(newColumn)
     })
+    
+    return resultColumns
+  })()
   ]
   
   return (
@@ -1553,6 +1695,26 @@ const MultiSelectDelete = ({
           />
         </Dropdown>
       )}
+      
+      {/* 表头右键菜单 */}
+      <Dropdown
+        menu={{ items: headerContextMenuItems }}
+        open={headerContextMenuVisible}
+        onOpenChange={setHeaderContextMenuVisible}
+        getPopupContainer={() => document.body}
+      >
+        <div
+          style={{
+            position: 'fixed',
+            left: headerContextMenuPosition.x,
+            top: headerContextMenuPosition.y,
+            width: 1,
+            height: 1,
+            opacity: 0,
+            zIndex: 9999
+          }}
+        />
+      </Dropdown>
       
       {/* 链接输入模态框 */}
       <Modal
@@ -1822,6 +1984,21 @@ const MultiSelectDelete = ({
           border: 1px solid #f0f0f0;
           width: auto !important;
           min-width: 100%;
+        }
+        
+        /* 字符长度列样式 - 确保整列统一颜色 */
+        /* 使用更具体的选择器，确保覆盖Ant Design默认样式 */
+        .ant-table .ant-table-thead > tr > th.ant-table-cell.character-length-column,
+        .ant-table .ant-table-tbody > tr > td.ant-table-cell.character-length-column {
+          background-color: #e6f7ff !important;
+          font-weight: 500;
+        }
+        
+        /* 确保行奇偶性不会影响字符长度列的背景色 */
+        /* 处理Ant Design的行奇偶样式 */
+        .ant-table .ant-table-tbody > tr.ant-table-row:nth-child(even) > td.ant-table-cell.character-length-column,
+        .ant-table .ant-table-tbody > tr.ant-table-row.ant-table-row-even > td.ant-table-cell.character-length-column {
+          background-color: #e6f7ff !important;
         }
         
         /* 删除table-wrapper样式 */

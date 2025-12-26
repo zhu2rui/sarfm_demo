@@ -735,6 +735,48 @@ def update_table_structure(current_user, table_id):
                 column['hidden'] = False
         
         table.columns = json.dumps(columns)
+        
+        # 获取该表格所有数据，用于处理自增列
+        inventory_data_list = InventoryData.query.filter_by(table_id=table_id).all()
+        
+        # 处理自增列的自增序列
+        for column in columns:
+            if column.get('autoIncrement'):
+                column_name = column['column_name']
+                prefix = column.get('prefix', '')
+                
+                # 查找现有数据中该列的最大值
+                max_value = 0
+                import re
+                pattern = re.compile(f'^{re.escape(prefix)}(\d+)$')
+                
+                for inventory_data in inventory_data_list:
+                    data_json = json.loads(inventory_data.data)
+                    if column_name in data_json:
+                        value = data_json[column_name]
+                        match = pattern.match(value)
+                        if match:
+                            numeric_part = int(match.group(1))
+                            if numeric_part > max_value:
+                                max_value = numeric_part
+                
+                # 获取或创建自增序列
+                sequence = AutoIncrementSequence.query.filter_by(
+                    table_id=table_id,
+                    column_name=column_name
+                ).first()
+                
+                if not sequence:
+                    # 创建新的自增序列
+                    sequence = AutoIncrementSequence(
+                        table_id=table_id,
+                        column_name=column_name,
+                        current_value=max_value
+                    )
+                    db.session.add(sequence)
+                else:
+                    # 更新现有序列的当前值
+                    sequence.current_value = max_value
     
     try:
         db.session.commit()
@@ -752,6 +794,86 @@ def update_table_structure(current_user, table_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'code': 500, 'message': f'更新表格结构失败: {str(e)}', 'data': None}), 500
+
+# 检查自增列数据是否符合要求
+@app.route('/api/v1/tables/<int:table_id>/check-auto-increment', methods=['POST'])
+@token_required
+def check_auto_increment(current_user, table_id):
+    # 只有管理员可以检查自增列数据
+    if current_user.role != 'admin':
+        return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
+    
+    table = TableStructure.query.get(table_id)
+    if not table:
+        return jsonify({'code': 404, 'message': '表格结构不存在', 'data': None}), 404
+    
+    data = request.get_json()
+    column_name = data.get('column_name')
+    prefix = data.get('prefix', '')
+    
+    if not column_name:
+        return jsonify({'code': 400, 'message': '列名不能为空', 'data': None}), 400
+    
+    # 获取该表格所有数据
+    inventory_data_list = InventoryData.query.filter_by(table_id=table_id).all()
+    
+    # 用于验证的数据列表
+    column_values = []
+    numeric_values = []
+    existing_prefixes = set()
+    
+    # 正则表达式：前缀+数字组合
+    import re
+    pattern = re.compile(f'^(.+?)(\d+)$')
+    
+    # 如果没有输入前缀，先检测现有数据的前缀
+    detected_prefix = prefix
+    if not prefix and inventory_data_list:
+        # 先从第一条数据中提取前缀
+        first_data = inventory_data_list[0]
+        data_json = json.loads(first_data.data)
+        if column_name in data_json:
+            value = data_json[column_name]
+            match = pattern.match(value)
+            if match:
+                detected_prefix = match.group(1)
+    
+    for inventory_data in inventory_data_list:
+        data_json = json.loads(inventory_data.data)
+        if column_name in data_json:
+            value = data_json[column_name]
+            column_values.append(value)
+            
+            # 验证格式：前缀+数字组合
+            match = pattern.match(value)
+            if not match:
+                return jsonify({'code': 400, 'message': f'列 {column_name} 中存在不符合格式的数据: {value}。数据必须符合 [前缀字符串][数字] 格式。', 'data': None}), 400
+            
+            # 提取前缀和数字部分
+            actual_prefix = match.group(1)
+            numeric_part = match.group(2)
+            
+            existing_prefixes.add(actual_prefix)
+            
+            # 验证前缀是否与检测到的前缀匹配
+            if actual_prefix != detected_prefix:
+                return jsonify({'code': 400, 'message': f'列 {column_name} 中数据的前缀与预期前缀不匹配。现有数据的前缀为: {actual_prefix}，预期前缀为: {detected_prefix}。', 'data': None}), 400
+            
+            numeric_values.append(int(numeric_part))
+    
+    # 验证唯一性
+    if len(column_values) != len(set(column_values)):
+        return jsonify({'code': 400, 'message': f'列 {column_name} 中存在重复数据。请重新整理数据，确保所有数据唯一。', 'data': None}), 400
+    
+    # 计算最大数字值
+    max_value = max(numeric_values) if numeric_values else 0
+    
+    # 如果数据量大于0，检查现有数据的前缀是否一致
+    if len(existing_prefixes) > 1:
+        return jsonify({'code': 400, 'message': f'列 {column_name} 中数据的前缀不一致。现有数据包含多种前缀: {list(existing_prefixes)}。请重新整理数据，确保所有数据使用统一的前缀。', 'data': None}), 400
+    
+    # 返回检测到的前缀和最大数字值
+    return jsonify({'code': 200, 'message': '数据符合要求', 'data': {'max_value': max_value, 'prefix': detected_prefix}}), 200
 
 # 删除表格结构
 @app.route('/api/v1/tables/<int:table_id>', methods=['DELETE'])

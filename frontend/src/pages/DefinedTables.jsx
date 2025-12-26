@@ -75,6 +75,79 @@ const DefinedTables = () => {
   const handleEditSubmit = async (values) => {
     if (!currentTable) return
     
+    // 查验自增列数据
+    const checkAutoIncrementColumns = async () => {
+      for (const [index, column] of values.columns.entries()) {
+        if (column.autoIncrement) {
+          // 调用API查验数据
+          try {
+            const response = await axios.post(`/api/v1/tables/${currentTable.id}/check-auto-increment`, {
+              column_name: column.column_name,
+              prefix: column.prefix
+            })
+            
+            if (response.data.code === 200) {
+              // 数据符合要求，获取检测到的前缀
+              const detectedPrefix = response.data.data.prefix
+              
+              // 如果检测到的前缀与当前表单中的前缀不同，自动填充
+              if (detectedPrefix !== column.prefix) {
+                // 更新表单中的前缀值
+                editForm.setFieldsValue({
+                  columns: values.columns.map((col, idx) => {
+                    if (idx === index) {
+                      return { ...col, prefix: detectedPrefix }
+                    }
+                    return col
+                  })
+                })
+                
+                // 更新当前values对象中的前缀，以便后续处理
+                values.columns[index].prefix = detectedPrefix
+              }
+              
+              // 数据符合要求，提示用户
+              return new Promise((resolve) => {
+                Modal.confirm({
+                  title: '数据符合要求',
+                  content: `该列所有数据均符合要求。以后新创建数据会从已经存在的数据中除了前置字符串以外，剩下的数字中最大的一个+1开始自增。是否确认继续保存？`,
+                  onOk() {
+                    resolve(true)
+                  },
+                  onCancel() {
+                    resolve(false)
+                  }
+                })
+              })
+            } else {
+              // 数据不符合要求，提示用户
+              message.error(response.data.message)
+              return false
+            }
+          } catch (error) {
+            // 改进错误提示
+            if (error.response) {
+              // 服务器返回了错误响应
+              message.error(`数据检查失败：${error.response.data.message || '服务器错误'}`)
+            } else if (error.request) {
+              // 请求已发送但没有收到响应
+              message.error('数据检查失败：无法连接到服务器，请稍后重试')
+            } else {
+              // 请求配置出错
+              message.error(`数据检查失败：${error.message}`)
+            }
+            console.error('Check auto increment error:', error)
+            return false
+          }
+        }
+      }
+      return true // 没有自增列，直接通过
+    }
+    
+    // 执行查验
+    const canProceed = await checkAutoIncrementColumns()
+    if (!canProceed) return
+    
     try {
       const response = await axios.put(`/api/v1/tables/${currentTable.id}`, {
         table_name: values.tableName,
@@ -178,9 +251,29 @@ const DefinedTables = () => {
                 </Space>
                 <div style={{ marginTop: 8 }}>
                   <span style={{ color: '#666', marginRight: 8 }}>列定义:</span>
-                  <Space size="small">
-                    {table.columns.map((column, index) => (
-                      <span 
+                  {/* 使用水平滚动容器，解决列名标签挤成竖向排布的问题 */}
+                  <div style={{
+                    display: 'flex',
+                    overflowX: 'auto',
+                    padding: '4px 0',
+                    scrollbarWidth: 'thin',
+                    scrollbarColor: '#1890ff transparent',
+                    // 隐藏滚动条但保留滚动功能（Chrome/Safari）
+                    '&::-webkit-scrollbar': {
+                      height: '6px'
+                    },
+                    '&::-webkit-scrollbar-track': {
+                      backgroundColor: 'transparent'
+                    },
+                    '&::-webkit-scrollbar-thumb': {
+                      backgroundColor: 'rgba(24, 144, 255, 0.5)',
+                      borderRadius: '3px'
+                    }
+                  }}>
+                    {/* 使用Space组件，并设置wrap为false，确保所有标签在同一行 */}
+                    <Space size="small" wrap={false}>
+                      {table.columns.map((column, index) => (
+                        <span 
                           key={column.column_name} 
                           style={{
                             padding: '4px 8px',
@@ -189,14 +282,19 @@ const DefinedTables = () => {
                             color: column.dropDown ? '#666' : '#1890ff',
                             fontSize: 12,
                             border: '1px solid',
-                            borderColor: column.dropDown ? '#d9d9d9' : '#91d5ff'
+                            borderColor: column.dropDown ? '#d9d9d9' : '#91d5ff',
+                            whiteSpace: 'nowrap', // 确保文字不换行
+                            display: 'inline-block', // 确保标签是块级元素，能够设置宽度
+                            minWidth: '60px', // 设置最小宽度，确保标签有足够的空间
+                            textAlign: 'center' // 文字居中显示
                           }}
                         >
                           {column.column_name}{column.dropDown && ' (下拉)'}
                         </span>
-                    ))}
-                  </Space>
-                </div>
+                        ))}
+                      </Space>
+                    </div>
+                  </div>
               </Space>
             </Card>
           </List.Item>
@@ -249,13 +347,33 @@ const DefinedTables = () => {
                       >
                         <Checkbox>下拉显示</Checkbox>
                       </Form.Item>
+                      {/* 自增功能配置 */}
+                      <Form.Item
+                        {...restField}
+                        name={[name, 'autoIncrement']}
+                        valuePropName="checked"
+                        noStyle
+                      >
+                        <Checkbox>是否自增</Checkbox>
+                      </Form.Item>
+                      {/* 前缀输入框 */}
+                      <Form.Item
+                        {...restField}
+                        name={[name, 'prefix']}
+                        noStyle
+                      >
+                        <Input 
+                          placeholder="前置字符串" 
+                          style={{ width: 150, marginLeft: 8 }}
+                        />
+                      </Form.Item>
                       <Button danger onClick={() => remove(name)} disabled={fields.length === 1}>
                         删除
                       </Button>
                     </Space>
                   ))}
                   <Form.Item>
-                    <Button type="dashed" onClick={() => add({ column_name: '', data_type: 'string', dropDown: false })} block>
+                    <Button type="dashed" onClick={() => add({ column_name: '', data_type: 'string', dropDown: false, autoIncrement: false, prefix: '' })} block>
                         + 添加列
                       </Button>
                   </Form.Item>
