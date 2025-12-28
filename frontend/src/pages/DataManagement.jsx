@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext } from 'react'
-import { Card, Button, Modal, Form, Input, message, Popconfirm, Space, InputNumber, Upload, Alert, Select, Dropdown, Menu, Checkbox } from 'antd'
-import { PlusOutlined, EditOutlined, DeleteOutlined, UploadOutlined, DownloadOutlined, AppstoreOutlined, SearchOutlined, CopyOutlined } from '@ant-design/icons'
+import { Card, Button, Modal, Form, Input, message, Popconfirm, Space, InputNumber, Alert, Select, Dropdown, Menu, Checkbox } from 'antd'
+import { PlusOutlined, EditOutlined, DeleteOutlined, AppstoreOutlined, SearchOutlined, CopyOutlined } from '@ant-design/icons'
 import axios from 'axios'
 import { TableContext } from '../App'
 import MultiSelectDelete from '../components/MultiSelectDelete'
@@ -22,11 +22,6 @@ const DataManagement = () => {
   const [currentData, setCurrentData] = useState(null)
   const [form] = Form.useForm()
   const [userRole, setUserRole] = useState('member')
-  const [importing, setImporting] = useState(false)
-  const [uploadError, setUploadError] = useState(null)
-  const [selectedEncoding, setSelectedEncoding] = useState('UTF-8')
-  const [showEncodingModal, setShowEncodingModal] = useState(false)
-  const [pendingFile, setPendingFile] = useState(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
   // 展开行状态管理
   const [expandedRowKeys, setExpandedRowKeys] = useState(() => {
@@ -89,17 +84,11 @@ const DataManagement = () => {
     }))
   }
 
-  // 获取用户角色和上次选择的编码方式
+  // 获取用户角色
   useEffect(() => {
     const user = JSON.parse(localStorage.getItem('user'))
     if (user) {
       setUserRole(user.role)
-    }
-    
-    // 从localStorage中读取上次选择的编码方式
-    const savedEncoding = localStorage.getItem('importEncoding')
-    if (savedEncoding) {
-      setSelectedEncoding(savedEncoding)
     }
   }, [])
 
@@ -272,317 +261,6 @@ const DataManagement = () => {
     
     // 保存到本地存储
     saveColumnPreferences(newVisibleColumns)
-  }
-
-  // 生成CSV内容
-  const generateCSV = (columns, data) => {
-    // 表头
-    const headers = ['id', 'created_at', 'updated_at']
-    // 从columns中获取所有列名
-    columns.forEach(col => {
-      headers.push(col.column_name)
-    })
-    
-    // 生成CSV行
-    const rows = [headers.join(',')]
-    
-    // 处理每一行数据
-    data.forEach(item => {
-      const row = [
-        item.id,
-        item.created_at,
-        item.updated_at
-      ]
-      
-      // 处理每个列的值
-      columns.forEach(col => {
-        let value = item.data ? item.data[col.column_name] : ''
-        // 如果是对象，转换为字符串
-        if (typeof value === 'object' && value !== null) {
-          value = JSON.stringify(value)
-        } else if (value === null || value === undefined) {
-          value = ''
-        }
-        
-        // 处理CSV特殊字符：如果包含逗号、引号或换行符，用引号包裹
-        if (typeof value === 'string') {
-          if (value.includes(',') || value.includes('"') || value.includes('\n') || value.includes('\r')) {
-            // 转义引号
-            value = value.replace(/"/g, '""')
-            // 用引号包裹
-            value = `"${value}"`
-          }
-        }
-        
-        row.push(value)
-      })
-      
-      rows.push(row.join(','))
-    })
-    
-    return rows.join('\n')
-  }
-  
-  // 处理数据导出
-  const handleExport = async () => {
-    if (!selectedTable) {
-      message.error('请先选择一个表格')
-      return
-    }
-    
-    const exportLoading = message.loading('正在导出数据，请稍候...', 0)
-    
-    try {
-      console.log(`开始导出表格 ${selectedTable.id} (${selectedTable.table_name}) 的数据`)
-      
-      // 对于包含链接对象的数据，先获取其纯文本表示，确保导出的数据都是纯文本
-      const response = await axios.get(`/api/v1/tables/${selectedTable.id}/data`, {
-        params: {
-          page: 1,
-          per_page: 10000 // 一次性获取所有数据进行处理
-        }
-      })
-      
-      // 检查响应
-      if (!response.data || response.data.code !== 200) {
-        message.error('获取数据失败，无法导出')
-        return
-      }
-      
-      // 处理数据，将所有链接对象转换为纯文本
-      const processedData = response.data.data.items.map(item => {
-        const processedItem = { ...item }
-        // 处理data字段
-        if (item.data) {
-          processedItem.data = { ...item.data }
-          for (const key in processedItem.data) {
-            const value = processedItem.data[key]
-            // 如果是链接对象，只保留文本部分
-            if (typeof value === 'object' && value !== null && value._text) {
-              processedItem.data[key] = value._text
-            }
-          }
-        }
-        return processedItem
-      })
-      
-      // 手动生成CSV
-      const csvContent = generateCSV(selectedTable.columns, processedData)
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
-      const url = window.URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      
-      // 生成文件名
-      const filename = `${selectedTable.table_name}_export.csv`
-      link.href = url
-      link.setAttribute('download', filename)
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      window.URL.revokeObjectURL(url)
-      
-      console.log(`数据导出成功，文件名: ${filename}`)
-      message.success(`数据导出成功，文件名: ${filename}`)
-      return
-    } catch (error) {
-      console.error('前端处理导出数据失败，尝试使用后端导出:', error)
-      
-      // 如果前端处理失败，尝试使用后端导出
-      try {
-        const response = await axios.get(`/api/v1/tables/${selectedTable.id}/export`, {
-          responseType: 'blob'
-        })
-      
-      console.log('导出请求成功，开始处理下载')
-      
-      // 检查响应类型（使用包含关系，允许带charset参数）
-      const contentType = response.headers['content-type']
-      if (!contentType || !contentType.includes('text/csv')) {
-        // 尝试解析错误信息
-        let errorText = '未知错误'
-        try {
-          errorText = await new Promise((resolve) => {
-            const reader = new FileReader()
-            reader.onload = (e) => resolve(e.target.result)
-            reader.readAsText(response.data)
-          })
-          
-          console.error('导出失败，服务器返回错误:', errorText)
-          console.error('完整响应:', response)
-          message.error(`数据导出失败: ${errorText}`)
-        } catch (parseError) {
-          console.error('导出失败，无法解析错误信息:', parseError)
-          console.error('完整响应:', response)
-          message.error(`数据导出失败: 服务器返回非CSV响应，状态码: ${response.status}`)
-        }
-        return
-      }
-      
-      // 直接使用响应返回的 Blob 对象，因为 responseType: 'blob' 已经将响应转换为 Blob
-      const blob = response.data
-      const url = window.URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      
-      // 获取文件名（优先从响应头获取，否则使用默认名称）
-      let filename = `${selectedTable.table_name}_export.csv`
-      const contentDisposition = response.headers['content-disposition']
-      if (contentDisposition) {
-        const matches = /filename="([^\"]+)"/.exec(contentDisposition)
-        if (matches && matches[1]) {
-          filename = matches[1]
-        }
-      }
-      
-      link.href = url
-      link.setAttribute('download', filename)
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      
-      // 释放URL对象
-      window.URL.revokeObjectURL(url)
-      
-      console.log(`数据导出成功，文件名: ${filename}`)
-      message.success(`数据导出成功，文件名: ${filename}`)
-      } catch (backendError) {
-        console.error('后端导出失败:', backendError)
-        console.error('导出数据错误详情:', {
-          message: backendError.message,
-          response: backendError.response ? {
-            status: backendError.response.status,
-            statusText: backendError.response.statusText,
-            data: backendError.response.data,
-            headers: backendError.response.headers
-          } : null,
-          config: backendError.config ? {
-            url: backendError.config.url,
-            method: backendError.config.method
-          } : null
-        })
-        
-        if (backendError.response) {
-          // 服务器返回错误
-          if (backendError.response.status === 401) {
-            message.error('登录已过期，请重新登录')
-          } else if (backendError.response.status === 403) {
-            message.error('您没有导出数据的权限')
-          } else if (backendError.response.status === 404) {
-            message.error('表格不存在或已被删除')
-          } else if (backendError.response.status === 500) {
-            message.error('服务器内部错误，请联系管理员')
-          } else {
-            message.error(`数据导出失败，错误码: ${backendError.response.status}`)
-          }
-        } else if (backendError.request) {
-          // 请求已发送但没有收到响应
-          message.error('网络异常，服务器没有响应，请检查网络连接')
-        } else {
-          // 请求配置错误
-          message.error(`数据导出失败: ${backendError.message}`)
-        }
-      }
-    } finally {
-      exportLoading() // 关闭加载提示
-    }
-  }
-
-  // 处理数据导入 - 显示编码选择模态框
-  const handleImport = (file) => {
-    if (!selectedTable) {
-      message.error('请先选择一个表格')
-      return false
-    }
-    
-    // 验证文件类型
-    if (file.type !== 'text/csv' && !file.name.endsWith('.csv')) {
-      message.error('请选择CSV格式的文件')
-      return false
-    }
-    
-    // 保存待处理的文件，显示编码选择模态框
-    setPendingFile(file)
-    setShowEncodingModal(true)
-    
-    return false // 阻止自动上传
-  }
-
-  // 确认编码选择，处理导入
-  const confirmEncoding = async () => {
-    if (!pendingFile || !selectedTable) {
-      message.error('导入失败，请重试')
-      setShowEncodingModal(false)
-      return
-    }
-    
-    // 将当前选择的编码方式保存到localStorage
-    localStorage.setItem('importEncoding', selectedEncoding)
-    
-    setImporting(true)
-    setUploadError(null)
-    setShowEncodingModal(false)
-    
-    try {
-      // 读取文件内容
-      const content = await new Promise((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onload = (e) => resolve(e.target.result)
-        reader.onerror = (e) => reject(new Error(`文件读取失败 (${selectedEncoding})`))
-        reader.readAsText(pendingFile, selectedEncoding)
-      })
-      
-      // 发送导入请求
-      const response = await axios.post(`/api/v1/tables/${selectedTable.id}/import`, {
-        csv_content: content
-      })
-      
-      if (response.data.code === 200) {
-        message.success(`成功导入 ${response.data.data.success_count} 条数据，失败 ${response.data.data.fail_count} 条`)
-        // 如果有失败的记录，显示详细错误信息
-        if (response.data.data.fail_count > 0) {
-          setUploadError(`导入失败的记录：\n${response.data.data.error_messages.join('\n')}`)
-        }
-        fetchData() // 刷新数据
-      } else {
-        message.error(response.data.message)
-        setUploadError(response.data.message)
-      }
-    } catch (error) {
-      console.error('Import data error:', error)
-      if (error.response && error.response.data) {
-        // 显示后端返回的详细错误信息
-        message.error(error.response.data.message)
-        setUploadError(error.response.data.message)
-      } else if (error.message.includes('文件读取失败')) {
-        message.error(`文件读取失败，请尝试其他编码格式 (当前编码: ${selectedEncoding})`)
-        setUploadError(`文件读取失败，请尝试其他编码格式 (当前编码: ${selectedEncoding})`)
-      } else {
-        message.error('数据导入失败，请检查网络连接或文件格式')
-        setUploadError('数据导入失败，请检查网络连接或文件格式')
-      }
-    } finally {
-      setImporting(false)
-      setPendingFile(null)
-    }
-  }
-
-  // 下载示例CSV文件
-  const downloadSampleCSV = () => {
-    if (!selectedTable || !Array.isArray(selectedTable.columns)) return
-    
-    // 生成示例CSV内容
-    const headers = selectedTable.columns.map(col => col.column_name).join(',')
-    const sampleRow = selectedTable.columns.map(col => `示例${col.column_name}`).join(',')
-    const csvContent = `${headers}\n${sampleRow}`
-    
-    // 创建下载链接
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
-    const url = window.URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.setAttribute('download', `${selectedTable.table_name}_sample.csv`)
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
   }
 
   // 显示添加/编辑模态框
@@ -1666,84 +1344,9 @@ const DataManagement = () => {
               {isMobile ? '添加' : '添加数据'}
             </Button>
           )}
-          {(userRole === 'admin' || userRole === 'leader') && (
-            <>
-              <Upload
-                beforeUpload={handleImport}
-                showUploadList={false}
-                accept=".csv"
-              >
-                <Button 
-                  type="default" 
-                  icon={<UploadOutlined />}
-                  loading={importing}
-                  disabled={!selectedTable}
-                  style={{
-                    borderRadius: 6,
-                    fontWeight: 500,
-                    transition: 'all 0.3s ease',
-                    padding: isMobile ? '4px 12px' : '8px 16px',
-                    fontSize: isMobile ? '12px' : '14px'
-                  }}
-                  onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-1px)'}
-                  onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
-                >
-                  {isMobile ? '导入' : '导入数据'}
-                </Button>
-              </Upload>
-              <Button 
-                type="default" 
-                icon={<DownloadOutlined />}
-                onClick={handleExport}
-                disabled={!selectedTable}
-                style={{
-                  borderRadius: 6,
-                  fontWeight: 500,
-                  transition: 'all 0.3s ease',
-                  padding: isMobile ? '4px 12px' : '8px 16px',
-                  fontSize: isMobile ? '12px' : '14px'
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-1px)'}
-                onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
-              >
-                {isMobile ? '导出' : '导出数据'}
-              </Button>
-              <Button 
-                type="default" 
-                onClick={downloadSampleCSV}
-                disabled={!selectedTable}
-                style={{
-                  borderRadius: 6,
-                  fontWeight: 500,
-                  transition: 'all 0.3s ease',
-                  padding: isMobile ? '4px 12px' : '8px 16px',
-                  fontSize: isMobile ? '12px' : '14px',
-                  display: isMobile ? 'none' : 'inline-flex' // 移动端隐藏下载示例CSV按钮
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-1px)'}
-                onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
-              >
-                下载示例CSV
-              </Button>
-            </>
-          )}
         </Space>
       </div>
       
-      {uploadError && (
-        <Alert
-          message="导入错误"
-          description={uploadError}
-          type="error"
-          showIcon
-          style={{ 
-            marginBottom: 20, 
-            borderRadius: 8,
-            boxShadow: '0 2px 8px rgba(255, 102, 102, 0.1)'
-          }}
-        />
-      )}
-
       {selectedTable && (
         <div style={{ 
           marginBottom: isMobile ? 12 : 20, 
@@ -2016,41 +1619,6 @@ const DataManagement = () => {
             </Space>
           </Form.Item>
         </Form>
-      </Modal>
-
-      {/* 编码选择模态框 */}
-      <Modal
-        title="选择文件编码"
-        open={showEncodingModal}
-        onOk={confirmEncoding}
-        onCancel={() => setShowEncodingModal(false)}
-        okText="确定"
-        cancelText="取消"
-        width={400}
-      >
-        <div style={{ marginBottom: 16 }}>
-          <p>请选择CSV文件的编码格式：</p>
-        </div>
-        <Select
-          value={selectedEncoding}
-          onChange={setSelectedEncoding}
-          style={{ width: '100%' }}
-          options={[
-            { value: 'UTF-8', label: 'UTF-8' },
-            { value: 'GBK', label: 'GBK (中文Windows)' },
-            { value: 'Big5', label: 'Big5 (繁体中文)' },
-            { value: 'ISO-8859-1', label: 'ISO-8859-1 (Latin-1)' },
-            { value: 'UTF-16', label: 'UTF-16' }
-          ]}
-        />
-        <div style={{ marginTop: 16, color: '#666', fontSize: 12 }}>
-          <p>提示：</p>
-          <ul style={{ margin: '8px 0' }}>
-            <li>UTF-8：适用于大多数现代CSV文件</li>
-            <li>GBK：适用于中文Windows系统生成的CSV文件</li>
-            <li>Big5：适用于繁体中文系统生成的CSV文件</li>
-          </ul>
-        </div>
       </Modal>
     </Card>
   )

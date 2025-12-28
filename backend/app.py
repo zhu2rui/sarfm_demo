@@ -899,6 +899,28 @@ def delete_table_structure(current_user, table_id):
         db.session.rollback()
         return jsonify({'code': 500, 'message': f'删除表格结构失败: {str(e)}', 'data': None}), 500
 
+# 删除所有表格结构
+@app.route('/api/v1/tables/all', methods=['DELETE'])
+@token_required
+def delete_all_tables(current_user):
+    # 只有用户名为"admin"的管理员才能删除所有表格结构
+    if current_user.role != 'admin' or current_user.username != 'admin':
+        return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
+    
+    try:
+        # 删除所有关联的库存数据
+        InventoryData.query.delete()
+        # 删除所有自增序列
+        AutoIncrementSequence.query.delete()
+        # 删除所有表格结构
+        TableStructure.query.delete()
+        db.session.commit()
+        
+        return jsonify({'code': 200, 'message': '所有表格结构删除成功', 'data': None}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'code': 500, 'message': f'删除所有表格结构失败: {str(e)}', 'data': None}), 500
+
 # 添加库存数据
 @app.route('/api/v1/tables/<int:table_id>/data', methods=['POST'])
 @token_required
@@ -1866,14 +1888,28 @@ def import_data(current_user):
         print(f"识别到属性工作表: {properties_sheets}")
         
         # 处理每个数据工作表
-        for sheet_name in data_sheets:
+        print(f"准备处理{len(data_sheets)}个数据工作表")
+        for i, sheet_name in enumerate(data_sheets):
+            print(f"\n===== 开始处理第{i+1}个数据工作表: {sheet_name} =====")
             ws = wb[sheet_name]
             imported_tables.append(sheet_name)
             
             # 获取表头
-            header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True))
+            try:
+                header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True))
+                print(f"工作表{sheet_name}的表头: {header_row}")
+                print(f"表头长度: {len(header_row)}")
+            except StopIteration:
+                print(f"工作表{sheet_name}没有表头行")
+                results.append({
+                    'table_name': sheet_name,
+                    'status': 'failed',
+                    'message': '工作表没有表头行'
+                })
+                continue
             
             if len(header_row) < 2:  # 至少需要一个列名和一个数据行
+                print(f"工作表{sheet_name}表头格式不正确，至少需要一个列名和一个数据行")
                 results.append({
                     'table_name': sheet_name,
                     'status': 'failed',
@@ -1889,12 +1925,15 @@ def import_data(current_user):
                     break
             
             if created_at_column_index is None:
+                print(f"工作表{sheet_name}缺少创建时间列")
                 results.append({
                     'table_name': sheet_name,
                     'status': 'failed',
                     'message': '缺少创建时间列'
                 })
                 continue
+            else:
+                print(f"工作表{sheet_name}的创建时间列索引: {created_at_column_index}")
             
             # 获取数据列名
             data_headers = header_row[:created_at_column_index] + header_row[created_at_column_index+1:]
@@ -1903,17 +1942,19 @@ def import_data(current_user):
             columns_def = []
             properties_ws = None
             
+            print(f"准备查找表格{sheet_name}的属性工作表")
+            print(f"当前properties_sheets字典: {properties_sheets}")
+            
             if sheet_name in properties_sheets:
                 # 找到属性工作表
                 properties_sheet_name = properties_sheets[sheet_name]
-                properties_ws = wb[properties_sheet_name]
                 print(f"找到表格{sheet_name}的属性工作表: {properties_sheet_name}")
                 
-                # 读取属性工作表数据
-                properties_rows = list(properties_ws.iter_rows(min_row=1, values_only=True))
-                
-                if len(properties_rows) < 2:  # 至少需要表头和一行数据
-                    print(f"属性工作表{properties_sheet_name}格式不正确，使用默认配置")
+                try:
+                    properties_ws = wb[properties_sheet_name]
+                    print(f"成功获取属性工作表对象")
+                except KeyError:
+                    print(f"无法找到属性工作表{properties_sheet_name}")
                     # 使用默认配置
                     for header in data_headers:
                         columns_def.append({
@@ -1921,14 +1962,14 @@ def import_data(current_user):
                             'data_type': 'string',
                             'hidden': False
                         })
-                else:
-                    # 解析属性工作表
-                    properties_header = properties_rows[0]
                     
-                    # 验证属性表头
-                    expected_headers = ['column_name', 'data_type', 'dropDown', 'autoIncrement', 'prefix', 'hidden']
-                    if list(properties_header) != expected_headers:
-                        print(f"属性工作表{properties_sheet_name}表头不匹配，使用默认配置")
+                # 读取属性工作表数据
+                try:
+                    properties_rows = list(properties_ws.iter_rows(min_row=1, values_only=True))
+                    print(f"属性工作表{properties_sheet_name}共有{len(properties_rows)}行数据")
+                    
+                    if len(properties_rows) < 2:  # 至少需要表头和一行数据
+                        print(f"属性工作表{properties_sheet_name}格式不正确，使用默认配置")
                         # 使用默认配置
                         for header in data_headers:
                             columns_def.append({
@@ -1937,18 +1978,43 @@ def import_data(current_user):
                                 'hidden': False
                             })
                     else:
-                        # 使用属性工作表定义的列配置
-                        for row in properties_rows[1:]:
-                            if len(row) >= 6:
+                        # 解析属性工作表
+                        properties_header = properties_rows[0]
+                        print(f"属性工作表{properties_sheet_name}的表头: {properties_header}")
+                        
+                        # 验证属性表头
+                        expected_headers = ['column_name', 'data_type', 'dropDown', 'autoIncrement', 'prefix', 'hidden']
+                        if list(properties_header) != expected_headers:
+                            print(f"属性工作表{properties_sheet_name}表头不匹配，使用默认配置")
+                            # 使用默认配置
+                            for header in data_headers:
                                 columns_def.append({
-                                    'column_name': row[0] or '',
-                                    'data_type': row[1] or 'string',
-                                    'dropDown': bool(row[2]),
-                                    'autoIncrement': bool(row[3]),
-                                    'prefix': row[4] or '',
-                                    'hidden': bool(row[5])
+                                    'column_name': header,
+                                    'data_type': 'string',
+                                    'hidden': False
                                 })
-                        print(f"成功读取表格{sheet_name}的列属性: {len(columns_def)}列")
+                        else:
+                            # 使用属性工作表定义的列配置
+                            for row in properties_rows[1:]:
+                                if len(row) >= 6:
+                                    columns_def.append({
+                                        'column_name': row[0] or '',
+                                        'data_type': row[1] or 'string',
+                                        'dropDown': bool(row[2]),
+                                        'autoIncrement': bool(row[3]),
+                                        'prefix': row[4] or '',
+                                        'hidden': bool(row[5])
+                                    })
+                            print(f"成功读取表格{sheet_name}的列属性: {len(columns_def)}列")
+                except Exception as e:
+                    print(f"读取属性工作表{properties_sheet_name}失败: {str(e)}")
+                    # 使用默认配置
+                    for header in data_headers:
+                        columns_def.append({
+                            'column_name': header,
+                            'data_type': 'string',
+                            'hidden': False
+                        })
             else:
                 # 没有属性工作表，使用默认配置
                 print(f"未找到表格{sheet_name}的属性工作表，使用默认配置")
@@ -1959,121 +2025,182 @@ def import_data(current_user):
                         'hidden': False
                     })
             
-            # 检查表格是否已存在
-            existing_table = TableStructure.query.filter_by(table_name=sheet_name).first()
+            print(f"表格{sheet_name}的列配置: {columns_def}")
             
-            if existing_table:
-                # 如果表格已存在，删除现有表格及其数据
-                print(f"表格{sheet_name}已存在，删除现有表格和数据")
-                InventoryData.query.filter_by(table_id=existing_table.id).delete()
-                AutoIncrementSequence.query.filter_by(table_id=existing_table.id).delete()
-                db.session.delete(existing_table)
+            try:
+                # 检查表格是否已存在
+                existing_table = TableStructure.query.filter_by(table_name=sheet_name).first()
+                
+                if existing_table:
+                    # 如果表格已存在，删除现有表格及其数据
+                    print(f"表格{sheet_name}已存在，删除现有表格和数据")
+                    InventoryData.query.filter_by(table_id=existing_table.id).delete()
+                    AutoIncrementSequence.query.filter_by(table_id=existing_table.id).delete()
+                    db.session.delete(existing_table)
+                    print(f"成功删除现有表格和数据")
+                
+                # 创建新的表格结构
+                columns_json = json.dumps(columns_def)
+                
+                new_table = TableStructure(
+                    table_name=sheet_name,
+                    columns=columns_json
+                )
+                db.session.add(new_table)
+                db.session.flush()  # 获取新表ID，但不提交事务
+                print(f"成功创建表格{sheet_name}，ID: {new_table.id}")
+                
+                # 初始化自增序列
+                for col in columns_def:
+                    if col.get('autoIncrement'):
+                        column_name = col['column_name']
+                        # 创建自增序列，初始值为0
+                        sequence = AutoIncrementSequence(
+                            table_id=new_table.id,
+                            column_name=column_name,
+                            current_value=0
+                        )
+                        db.session.add(sequence)
+                
+                # 提交表格和序列创建
                 db.session.commit()
-            
-            # 创建新的表格结构
-            columns_json = json.dumps(columns_def)
-            
-            new_table = TableStructure(
-                table_name=sheet_name,
-                columns=columns_json
-            )
-            db.session.add(new_table)
-            db.session.commit()
-            print(f"成功创建表格{sheet_name}")
-            
-            # 初始化自增序列
-            for col in columns_def:
-                if col.get('autoIncrement'):
-                    column_name = col['column_name']
-                    # 创建自增序列，初始值为0
-                    sequence = AutoIncrementSequence(
-                        table_id=new_table.id,
-                        column_name=column_name,
-                        current_value=0
-                    )
-                    db.session.add(sequence)
-            db.session.commit()
-            print(f"成功初始化表格{sheet_name}的自增序列")
+                print(f"成功初始化表格{sheet_name}的自增序列")
+            except Exception as e:
+                # 回滚事务
+                db.session.rollback()
+                print(f"创建表格{sheet_name}失败: {str(e)}")
+                results.append({
+                    'table_name': sheet_name,
+                    'status': 'failed',
+                    'message': f'创建表格结构失败: {str(e)}'
+                })
+                continue
             
             # 处理数据行
             success_count = 0
             fail_count = 0
             error_messages = []
             
-            # 从第二行开始读取数据
-            for row_num, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-                if len(row) < created_at_column_index + 1:
-                    fail_count += 1
-                    error_messages.append(f'第{row_num}行，数据为空')
-                    continue
-                
-                try:
-                    # 构建数据字典
-                    row_data = {}
-                    for i, header in enumerate(data_headers):
-                        if i < len(row):
-                            row_data[header] = str(row[i]) if row[i] is not None else ''
-                        else:
-                            row_data[header] = ''
+            try:
+                # 从第二行开始读取数据
+                for row_num, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+                    if len(row) < created_at_column_index + 1:
+                        fail_count += 1
+                        error_messages.append(f'第{row_num}行，数据为空')
+                        continue
                     
-                    # 保存库存数据记录
-                    new_data = InventoryData(
-                        table_id=new_table.id,
-                        data=json.dumps(row_data),
-                        created_by=current_user.id
-                    )
-                    db.session.add(new_data)
-                    success_count += 1
-                except Exception as e:
-                    fail_count += 1
-                    error_messages.append(f'第{row_num}行，处理失败: {str(e)}')
-            
-            # 提交数据
-            db.session.commit()
-            print(f"成功导入表格{sheet_name}的{success_count}条数据")
+                    try:
+                        # 构建数据字典
+                        row_data = {}
+                        for i, header in enumerate(data_headers):
+                            if i < len(row):
+                                row_data[header] = str(row[i]) if row[i] is not None else ''
+                            else:
+                                row_data[header] = ''
+                        
+                        # 获取创建时间值
+                        created_at_str = row[created_at_column_index]
+                        created_at = None
+                        if created_at_str:
+                            # 尝试解析时间字符串
+                            from datetime import datetime
+                            try:
+                                created_at = datetime.strptime(created_at_str, '%Y-%m-%d %H:%M:%S')
+                            except ValueError:
+                                # 如果时间格式不正确，使用当前时间
+                                from datetime import datetime
+                                created_at = datetime.now()
+                        else:
+                            # 如果没有创建时间，使用当前时间
+                            from datetime import datetime
+                            created_at = datetime.now()
+                        
+                        # 保存库存数据记录
+                        new_data = InventoryData(
+                            table_id=new_table.id,
+                            data=json.dumps(row_data),
+                            created_by=current_user.id,
+                            created_at=created_at
+                        )
+                        db.session.add(new_data)
+                        success_count += 1
+                    except Exception as e:
+                        fail_count += 1
+                        error_messages.append(f'第{row_num}行，处理失败: {str(e)}')
+                
+                # 提交数据
+                db.session.commit()
+                print(f"成功导入表格{sheet_name}的{success_count}条数据")
+            except Exception as e:
+                # 回滚事务
+                db.session.rollback()
+                print(f"导入表格{sheet_name}的数据失败: {str(e)}")
+                results.append({
+                    'table_name': sheet_name,
+                    'status': 'failed',
+                    'message': f'导入数据失败: {str(e)}',
+                    'success_count': 0,
+                    'fail_count': 0,
+                    'error_messages': [f'数据导入失败: {str(e)}']
+                })
+                continue
             
             # 更新自增序列的当前值
-            for col in columns_def:
-                if col.get('autoIncrement'):
-                    column_name = col['column_name']
-                    prefix = col.get('prefix', '')
-                    
-                    # 获取该列的最大值
-                    all_data = InventoryData.query.filter_by(table_id=new_table.id).all()
-                    max_value = 0
-                    
-                    if all_data:
-                        import re
-                        pattern = re.compile(f'^{re.escape(prefix)}(\d+)$')
+            try:
+                for col in columns_def:
+                    if col.get('autoIncrement'):
+                        column_name = col['column_name']
+                        prefix = col.get('prefix', '')
                         
-                        for item in all_data:
-                            item_data = json.loads(item.data)
-                            if column_name in item_data:
-                                value = item_data[column_name]
-                                match = pattern.match(value)
-                                if match:
-                                    numeric_part = int(match.group(1))
-                                    if numeric_part > max_value:
-                                        max_value = numeric_part
-                    
-                    # 更新自增序列
-                    sequence = AutoIncrementSequence.query.filter_by(
-                        table_id=new_table.id,
-                        column_name=column_name
-                    ).first()
-                    if sequence:
-                        sequence.current_value = max_value
-                        db.session.commit()
-                    print(f"成功更新表格{sheet_name}列{column_name}的自增序列，当前值为{max_value}")
-            
-            results.append({
-                'table_name': sheet_name,
-                'status': 'success',
-                'message': f'成功导入{success_count}条数据，失败{fail_count}条',
-                'success_count': success_count,
-                'fail_count': fail_count,
-                'error_messages': error_messages
-            })
+                        # 获取该列的最大值
+                        all_data = InventoryData.query.filter_by(table_id=new_table.id).all()
+                        max_value = 0
+                        
+                        if all_data:
+                            import re
+                            pattern = re.compile(f'^{re.escape(prefix)}(\d+)$')
+                            
+                            for item in all_data:
+                                item_data = json.loads(item.data)
+                                if column_name in item_data:
+                                    value = item_data[column_name]
+                                    match = pattern.match(value)
+                                    if match:
+                                        numeric_part = int(match.group(1))
+                                        if numeric_part > max_value:
+                                            max_value = numeric_part
+                        
+                        # 更新自增序列
+                        sequence = AutoIncrementSequence.query.filter_by(
+                            table_id=new_table.id,
+                            column_name=column_name
+                        ).first()
+                        if sequence:
+                            sequence.current_value = max_value
+                            db.session.commit()
+                        print(f"成功更新表格{sheet_name}列{column_name}的自增序列，当前值为{max_value}")
+                
+                results.append({
+                    'table_name': sheet_name,
+                    'status': 'success',
+                    'message': f'成功导入{success_count}条数据，失败{fail_count}条',
+                    'success_count': success_count,
+                    'fail_count': fail_count,
+                    'error_messages': error_messages
+                })
+            except Exception as e:
+                # 回滚事务
+                db.session.rollback()
+                print(f"更新自增序列失败: {str(e)}")
+                results.append({
+                    'table_name': sheet_name,
+                    'status': 'failed',
+                    'message': f'更新自增序列失败: {str(e)}',
+                    'success_count': success_count,
+                    'fail_count': fail_count + 1,
+                    'error_messages': error_messages + [f'更新自增序列失败: {str(e)}']
+                })
+                continue
         
         # 记录操作日志
         log = OperationLog(

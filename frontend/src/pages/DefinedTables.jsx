@@ -16,7 +16,6 @@ const DefinedTables = () => {
   const [currentTable, setCurrentTable] = useState(null)
   const [userRole, setUserRole] = useState('member')
   const tableContext = useContext(TableContext)
-  const fetchContextTables = tableContext?.fetchTables || (() => {})
   const { t } = useI18n()
 
   // 获取用户角色
@@ -27,13 +26,53 @@ const DefinedTables = () => {
     }
   }, [])
 
+  // 处理删除所有表格
+  const handleDeleteAllTables = async () => {
+    try {
+      Modal.confirm({
+        title: '警告！',
+        content: '确定要删除所有表格吗？此操作将删除所有表格及其数据，不可恢复！',
+        okText: '确定',
+        cancelText: '取消',
+        okType: 'danger',
+        async onOk() {
+          // 调用API删除所有表格
+          const response = await axios.delete('/api/v1/tables/all')
+          if (response.data.code === 200) {
+            message.success('所有表格删除成功')
+            fetchTables() // 刷新当前页面表格列表
+          } else {
+            message.error(response.data.message)
+          }
+        }
+      })
+    } catch (error) {
+      message.error('删除所有表格失败')
+      console.error('Delete all tables error:', error)
+    }
+  }
+
   // 获取表格列表
   const fetchTables = async () => {
     setLoading(true)
     try {
+      // 只调用一次API获取表格列表，不调用上下文的fetchTables
+      // 避免重复API调用和日志
       const response = await axios.get('/api/v1/tables')
+      console.log('Response data:', response.data)
       if (response.data.code === 200) {
-        setTables(response.data.data.items)
+        // 为每个表格的列添加默认值，确保dropDown、autoIncrement和prefix属性存在
+        const tablesWithDefaults = response.data.data.items.map(table => ({
+          ...table,
+          columns: table.columns.map(column => ({
+            ...column,
+            dropDown: column.dropDown || false,
+            autoIncrement: column.autoIncrement || false,
+            prefix: column.prefix || ''
+          }))
+        }))
+        console.log('Tables with defaults:', tablesWithDefaults)
+        setTables(tablesWithDefaults)
       } else {
         message.error(response.data.message)
       }
@@ -58,9 +97,16 @@ const DefinedTables = () => {
   // 显示编辑模态框
   const showEditModal = (table) => {
     setCurrentTable(table)
+    // 为columns中的每个字段添加默认值，确保dropDown、autoIncrement和prefix属性存在
+    const columnsWithDefaults = table.columns.map(column => ({
+      ...column,
+      dropDown: column.dropDown || false,
+      autoIncrement: column.autoIncrement || false,
+      prefix: column.prefix || ''
+    }))
     editForm.setFieldsValue({
       tableName: table.table_name,
-      columns: table.columns
+      columns: columnsWithDefaults
     })
     setIsEditModalVisible(true)
   }
@@ -158,7 +204,6 @@ const DefinedTables = () => {
         message.success('表格结构更新成功')
         setIsEditModalVisible(false)
         fetchTables() // 刷新当前页面表格列表
-        fetchContextTables() // 刷新侧边栏表格列表
       } else {
         message.error(response.data.message)
       }
@@ -179,7 +224,6 @@ const DefinedTables = () => {
       if (response.data.code === 200) {
         message.success('表格结构删除成功')
         fetchTables() // 刷新当前页面表格列表
-        fetchContextTables() // 刷新侧边栏表格列表
       } else {
         message.error(response.data.message)
       }
@@ -193,7 +237,7 @@ const DefinedTables = () => {
 
   return (
     <Card title="已定义表格" style={{ marginBottom: 16 }}>
-      <div style={{ marginBottom: 16 }}>
+      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Input.Search 
           placeholder="搜索表格名称" 
           allowClear={true} 
@@ -201,6 +245,18 @@ const DefinedTables = () => {
           value={searchText}
           onChange={(e) => setSearchText(e.target.value)}
         />
+        {/* 只有用户名为"admin"的管理员才能使用一键删除所有表格功能 */}
+        {(() => {
+          const user = JSON.parse(localStorage.getItem('user'));
+          return user && user.username === 'admin' && user.role === 'admin' && (
+            <Button 
+              type="danger" 
+              onClick={handleDeleteAllTables}
+            >
+              一键删除所有表格
+            </Button>
+          );
+        })()}
       </div>
       
       <List
@@ -257,18 +313,7 @@ const DefinedTables = () => {
                     overflowX: 'auto',
                     padding: '4px 0',
                     scrollbarWidth: 'thin',
-                    scrollbarColor: '#1890ff transparent',
-                    // 隐藏滚动条但保留滚动功能（Chrome/Safari）
-                    '&::-webkit-scrollbar': {
-                      height: '6px'
-                    },
-                    '&::-webkit-scrollbar-track': {
-                      backgroundColor: 'transparent'
-                    },
-                    '&::-webkit-scrollbar-thumb': {
-                      backgroundColor: 'rgba(24, 144, 255, 0.5)',
-                      borderRadius: '3px'
-                    }
+                    scrollbarColor: '#1890ff transparent'
                   }}>
                     {/* 使用Space组件，并设置wrap为false，确保所有标签在同一行 */}
                     <Space size="small" wrap={false}>

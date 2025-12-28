@@ -221,12 +221,22 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn, t, lang, changeLang }) => {
     }
   }, [])
 
-  // 获取表格列表
-  const fetchTables = async () => {
+  // 使用useCallback缓存fetchTables函数，避免每次渲染都重新创建
+  const fetchTables = React.useCallback(async () => {
     try {
       const response = await axios.get('/api/v1/tables')
       if (response.data.code === 200) {
-        setTables(response.data.data.items)
+        // 为每个表格的列添加默认值，确保dropDown、autoIncrement和prefix属性存在
+        const tablesWithDefaults = response.data.data.items.map(table => ({
+          ...table,
+          columns: table.columns.map(column => ({
+            ...column,
+            dropDown: column.dropDown || false,
+            autoIncrement: column.autoIncrement || false,
+            prefix: column.prefix || ''
+          }))
+        }))
+        setTables(tablesWithDefaults)
       } else {
         message.error(response.data.message)
         setTables([])
@@ -236,7 +246,7 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn, t, lang, changeLang }) => {
       message.error('获取表格列表失败')
       setTables([])
     }
-  }
+  }, [])
 
   // 组件挂载时获取表格列表
   React.useEffect(() => {
@@ -640,7 +650,7 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn, t, lang, changeLang }) => {
                                   })
                                   .catch(error => {
                                     console.error('Import error:', error);
-                                    message.error(t('dataManagement.successAdd'));
+                                    message.error(t('dataManagement.importFailed'));
                                   });
                                 }
                               };
@@ -851,7 +861,7 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn, t, lang, changeLang }) => {
                                     })
                                     .catch(error => {
                                       console.error('Import error:', error);
-                                      message.error(t('dataManagement.successAdd'));
+                                      message.error(t('dataManagement.importFailed'));
                                     });
                                   }
                                 };

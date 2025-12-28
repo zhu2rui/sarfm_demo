@@ -56,6 +56,7 @@ const langConfig = {
       successAdd: '数据添加成功',
       successEdit: '数据编辑成功',
       successDelete: '数据删除成功',
+      importFailed: '数据导入失败',
       noData: '暂无数据'
     },
     // 用户管理
@@ -144,6 +145,7 @@ const langConfig = {
       successAdd: 'Data added successfully',
       successEdit: 'Data edited successfully',
       successDelete: 'Data deleted successfully',
+      importFailed: 'Data import failed',
       noData: 'No data available'
     },
     // 用户管理
