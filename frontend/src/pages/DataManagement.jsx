@@ -54,6 +54,9 @@ const DataManagement = () => {
   // 搜索功能相关状态 - 改为基于表格ID的独立存储
   const [searchStates, setSearchStates] = useState({})
   
+  // 当前搜索文本，用于分页时保持搜索状态
+  const [currentSearchText, setCurrentSearchText] = useState('')
+  
   // 获取当前表格的搜索状态
   const getCurrentSearchState = () => {
     if (!selectedTable) return {
@@ -100,24 +103,36 @@ const DataManagement = () => {
         if (table) {
           setSelectedTable(table)
           setPage(1) // 重置分页
+          // 切换表格时清除搜索状态
+          setCurrentSearchText('')
+          setSearchStates({})
         } else {
           // 如果找不到对应的表格，设置为null
           console.warn(`找不到ID为${selectedTableId}的表格，重置为null`)
           setSelectedTable(null)
           setPage(1) // 重置分页
+          // 清除搜索状态
+          setCurrentSearchText('')
+          setSearchStates({})
         }
       } else {
         // 如果没有选中的表格，设置为null
         setSelectedTable(null)
         setPage(1) // 重置分页
+        // 清除搜索状态
+        setCurrentSearchText('')
+        setSearchStates({})
       }
     } else {
       setSelectedTable(null)
+      // 清除搜索状态
+      setCurrentSearchText('')
+      setSearchStates({})
     }
   }, [selectedTableId, tables])
 
   // 获取库存数据
-  const fetchData = async () => {
+  const fetchData = async (searchParams = null) => {
     if (!selectedTable) return
     
     setLoading(true)
@@ -126,6 +141,11 @@ const DataManagement = () => {
       const params = {
         page,
         per_page: pageSize
+      }
+      
+      // 如果传入了搜索参数（用于分页时保持搜索状态）
+      if (searchParams && searchParams.searchText) {
+        params.search = searchParams.searchText
       }
       
       const response = await axios.get(`/api/v1/tables/${selectedTable.id}/data`, {
@@ -154,8 +174,13 @@ const DataManagement = () => {
 
   // 当选中表格或分页参数变化时获取数据
   useEffect(() => {
-    fetchData()
-  }, [selectedTable, page, pageSize])
+    // 如果当前有搜索文本，则在分页时保持搜索状态
+    if (currentSearchText) {
+      fetchData({ searchText: currentSearchText })
+    } else {
+      fetchData()
+    }
+  }, [selectedTable, page, pageSize, currentSearchText])
   
   // 当模态框关闭时清空快捷导入相关状态
   useEffect(() => {
@@ -605,48 +630,35 @@ const DataManagement = () => {
       return
     }
     
+    setLoading(true)
     try {
-      // 使用异步处理，避免阻塞主线程
-      await new Promise(resolve => setTimeout(resolve, 100))
-      
-      // 编译正则表达式
-      const regex = new RegExp(currentState.searchText, 'i')
-      
-      // 搜索所有数据列和所有行
-      const results = dataList.filter(item => {
-        // 搜索数据字段
-        for (const key in item.data) {
-          const value = item.data[key]
-          
-          // 检查是否为链接对象
-          if (typeof value === 'object' && value !== null && value._text) {
-            // 链接对象，检查其_text属性
-            if (regex.test(value._text)) {
-              return true
-            }
-          }
-          // 检查是否为字符串
-          else if (typeof value === 'string' && regex.test(value)) {
-            return true
-          }
+      // 调用后端API进行搜索，支持分页
+      const response = await axios.get(`/api/v1/tables/${selectedTable.id}/data`, {
+        params: {
+          page,
+          per_page: pageSize,
+          search: currentState.searchText.trim()
         }
-        // 搜索创建时间字段
-        if (regex.test(item.created_at)) {
-          return true
-        }
-        return false
       })
       
-      setCurrentSearchState({
-        searchResults: results,
-        isSearching: true,
-        searchCount: results.length,
-        highlightedText: currentState.searchText
-      })
-      setPage(1) // 重置分页
+      if (response.data.code === 200) {
+        setCurrentSearchState({
+          searchResults: response.data.data.items,
+          isSearching: true,
+          searchCount: response.data.data.total,
+          highlightedText: currentState.searchText
+        })
+        setCurrentSearchText(currentState.searchText.trim())
+        setTotal(response.data.data.total)
+        setPage(1)
+      } else {
+        message.error(response.data.message || '搜索失败')
+      }
     } catch (error) {
-      message.error('搜索失败，请检查正则表达式格式')
+      message.error('搜索失败，请检查网络连接')
       console.error('Search error:', error)
+    } finally {
+      setLoading(false)
     }
   }
   
@@ -659,7 +671,10 @@ const DataManagement = () => {
       searchCount: 0,
       highlightedText: ''
     })
-    setPage(1) // 重置分页
+    setCurrentSearchText('')
+    setPage(1)
+    // 重新获取原始数据（不带搜索条件）
+    fetchData()
   }
   
   // 高亮显示匹配文本

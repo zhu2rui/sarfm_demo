@@ -48,6 +48,7 @@ os.makedirs(os.path.join(app.root_path, 'instance'), exist_ok=True)
 # 设置静态文件目录
 from flask import send_from_directory
 import os
+from sqlalchemy import or_
 
 # 设置静态文件目录
 app.config['FRONTEND_DIST'] = os.path.join(get_app_root(), 'frontend_dist')
@@ -1014,6 +1015,64 @@ def get_inventory_data_list(current_user, table_id):
     
     # 构建查询
     query = InventoryData.query.filter_by(table_id=table_id)
+    
+    # 如果有搜索关键词，则进行搜索（在Python层面过滤）
+    if search:
+        try:
+            # 先获取所有数据，然后在Python中过滤
+            all_data = query.all()
+            
+            # 在Python中进行搜索过滤
+            filtered_data = []
+            search_lower = search.lower()
+            
+            for item in all_data:
+                try:
+                    data_dict = json.loads(item.data) if isinstance(item.data, str) else item.data
+                    
+                    # 搜索所有数据字段的值
+                    for key, value in data_dict.items():
+                        if value and search_lower in str(value).lower():
+                            filtered_data.append(item)
+                            break
+                    
+                    # 也搜索created_at字段
+                    if item.created_at and search_lower in item.created_at.strftime('%Y-%m-%d %H:%M:%S').lower():
+                        if item not in filtered_data:
+                            filtered_data.append(item)
+                except:
+                    pass
+            
+            # 手动实现分页
+            total = len(filtered_data)
+            start = (page - 1) * per_page
+            end = start + per_page
+            paginated_items = filtered_data[start:end]
+            
+            # 转换数据格式
+            items = []
+            for item in paginated_items:
+                items.append({
+                    'id': item.id,
+                    'table_id': item.table_id,
+                    'data': json.loads(item.data) if isinstance(item.data, str) else item.data,
+                    'created_by': item.created_by,
+                    'created_at': item.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+                    'updated_at': item.updated_at.strftime('%Y-%m-%d %H:%M:%S')
+                })
+            
+            return jsonify({
+                'code': 200,
+                'message': 'success',
+                'data': {
+                    'items': items,
+                    'total': total,
+                    'page': page,
+                    'per_page': per_page
+                }
+            }), 200
+        except Exception as e:
+            print(f"Search error: {e}")
     
     # 执行查询并使用默认排序
     paginated_data = query.order_by(
