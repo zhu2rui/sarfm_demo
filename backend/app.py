@@ -6,14 +6,13 @@ from dotenv import load_dotenv
 import os
 import sys
 import jwt
+import shutil
+import threading
 from datetime import datetime, timedelta
 from jwt import decode as jwt_decode
 from functools import wraps
 import json
 import codecs
-
-# 确保标准输出使用UTF-8编码
-sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer)
 
 # 获取应用程序根目录（兼容PyInstaller打包）
 def get_app_root():
@@ -29,7 +28,7 @@ load_dotenv()
 
 # 创建Flask应用
 app = Flask(__name__)
-CORS(app)  # 启用CORS
+CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
 
 # 设置JWT密钥
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'your-secret-key')
@@ -51,7 +50,7 @@ import os
 from sqlalchemy import or_
 
 # 设置静态文件目录
-app.config['FRONTEND_DIST'] = os.path.join(get_app_root(), 'frontend_dist')
+app.config['FRONTEND_DIST'] = os.path.join(get_app_root(), '..', 'frontend', 'dist')
 
 # 确保JSON响应使用UTF-8编码
 @app.after_request
@@ -363,10 +362,7 @@ def reset_password():
     # 配置日志，确保所有日志都能被输出
     logging.basicConfig(
         level=logging.DEBUG,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.StreamHandler(sys.stdout),  # 输出到控制台
-        ]
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
     logger = logging.getLogger(__name__)
     
@@ -2323,6 +2319,177 @@ def change_password(current_user):
     except Exception as e:
         db.session.rollback()
         return jsonify({'code': 500, 'message': f'密码修改失败: {str(e)}', 'data': None}), 500
+
+# ==================== 数据库备份功能 ====================
+
+BACKUP_CONFIG_FILE = os.path.join(get_app_root(), 'instance', 'backup_config.json')
+BACKUP_FOLDER = os.path.join(get_app_root(), 'db_backup')
+
+def get_backup_config():
+    if os.path.exists(BACKUP_CONFIG_FILE):
+        with open(BACKUP_CONFIG_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return {'backup_interval_days': 7, 'enabled': False, 'last_backup_time': None}
+
+def save_backup_config(config):
+    with open(BACKUP_CONFIG_FILE, 'w', encoding='utf-8') as f:
+        json.dump(config, f, ensure_ascii=False, indent=2)
+
+def create_db_backup():
+    try:
+        os.makedirs(BACKUP_FOLDER, exist_ok=True)
+        
+        db_path = os.path.join(get_app_root(), 'instance', 'inventory.db')
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        backup_filename = f'inventory_backup_{timestamp}.db'
+        backup_path = os.path.join(BACKUP_FOLDER, backup_filename)
+        
+        shutil.copy2(db_path, backup_path)
+        
+        config = get_backup_config()
+        config['last_backup_time'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        save_backup_config(config)
+        
+        print(f'数据库备份成功: {backup_filename}')
+        return True, backup_filename
+    except Exception as e:
+        print(f'数据库备份失败: {str(e)}')
+        return False, str(e)
+
+def backup_scheduler_loop():
+    while True:
+        try:
+            config = get_backup_config()
+            if config.get('enabled', False):
+                interval_days = config.get('backup_interval_days', 7)
+                last_backup = config.get('last_backup_time')
+                
+                if last_backup:
+                    last_backup_dt = datetime.strptime(last_backup, '%Y-%m-%d %H:%M:%S')
+                    days_since_backup = (datetime.now() - last_backup_dt).days
+                    
+                    if days_since_backup >= interval_days:
+                        create_db_backup()
+                else:
+                    create_db_backup()
+        except Exception as e:
+            print(f'备份调度器错误: {str(e)}')
+        
+        threading.Timer(3600, backup_scheduler_loop).start()
+        break
+
+def start_backup_scheduler():
+    backup_thread = threading.Thread(target=backup_scheduler_loop, daemon=True)
+    backup_thread.start()
+
+@app.route('/api/v1/backup/config', methods=['GET'])
+@token_required
+def get_backup_config_api(current_user):
+    if current_user.role != 'admin':
+        return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
+    
+    config = get_backup_config()
+    return jsonify({'code': 200, 'message': 'success', 'data': config}), 200
+
+@app.route('/api/v1/backup/config', methods=['POST'])
+@token_required
+def set_backup_config_api(current_user):
+    if current_user.role != 'admin':
+        return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
+    
+    try:
+        data = request.get_json()
+        backup_interval_days = data.get('backup_interval_days', 7)
+        enabled = data.get('enabled', False)
+        
+        if backup_interval_days < 1:
+            return jsonify({'code': 400, 'message': '备份间隔不能少于1天', 'data': None}), 400
+        
+        config = get_backup_config()
+        config['backup_interval_days'] = backup_interval_days
+        config['enabled'] = enabled
+        save_backup_config(config)
+        
+        return jsonify({'code': 200, 'message': '备份配置已更新', 'data': config}), 200
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'code': 500, 'message': f'保存配置失败: {str(e)}', 'data': None}), 500
+
+@app.route('/api/v1/backup/backup-now', methods=['POST'])
+@token_required
+def backup_now_api(current_user):
+    if current_user.role != 'admin':
+        return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
+    
+    success, result = create_db_backup()
+    
+    if success:
+        return jsonify({'code': 200, 'message': f'备份成功: {result}', 'data': {'filename': result}}), 200
+    else:
+        return jsonify({'code': 500, 'message': f'备份失败: {result}', 'data': None}), 500
+
+@app.route('/api/v1/backup/list', methods=['GET'])
+@token_required
+def list_backups_api(current_user):
+    if current_user.role != 'admin':
+        return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
+    
+    try:
+        os.makedirs(BACKUP_FOLDER, exist_ok=True)
+        files = os.listdir(BACKUP_FOLDER)
+        backups = []
+        
+        for f in files:
+            if f.startswith('inventory_backup_') and f.endswith('.db'):
+                file_path = os.path.join(BACKUP_FOLDER, f)
+                stat = os.stat(file_path)
+                backups.append({
+                    'filename': f,
+                    'size': stat.st_size,
+                    'created_time': datetime.fromtimestamp(stat.st_ctime).strftime('%Y-%m-%d %H:%M:%S')
+                })
+        
+        backups.sort(key=lambda x: x['created_time'], reverse=True)
+        
+        return jsonify({'code': 200, 'message': 'success', 'data': backups}), 200
+    except Exception as e:
+        return jsonify({'code': 500, 'message': f'获取备份列表失败: {str(e)}', 'data': None}), 500
+
+@app.route('/api/v1/backup/download/<filename>', methods=['GET'])
+@token_required
+def download_backup_api(current_user, filename):
+    if current_user.role != 'admin':
+        return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
+    
+    backup_path = os.path.join(BACKUP_FOLDER, filename)
+    if not os.path.exists(backup_path):
+        return jsonify({'code': 404, 'message': '备份文件不存在', 'data': None}), 404
+    
+    return Response(
+        open(backup_path, 'rb'),
+        mimetype='application/octet-stream',
+        headers={'Content-Disposition': f'attachment; filename={filename}'}
+    )
+
+@app.route('/api/v1/backup/delete/<filename>', methods=['DELETE'])
+@token_required
+def delete_backup_api(current_user, filename):
+    if current_user.role != 'admin':
+        return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
+    
+    backup_path = os.path.join(BACKUP_FOLDER, filename)
+    if not os.path.exists(backup_path):
+        return jsonify({'code': 404, 'message': '备份文件不存在', 'data': None}), 404
+    
+    try:
+        os.remove(backup_path)
+        return jsonify({'code': 200, 'message': '删除成功', 'data': None}), 200
+    except Exception as e:
+        return jsonify({'code': 500, 'message': f'删除失败: {str(e)}', 'data': None}), 500
+
+# 启动定时备份调度器
+start_backup_scheduler()
 
 # 启动应用
 if __name__ == '__main__':

@@ -10,6 +10,7 @@ import Reports from './pages/Reports'
 import UserManagement from './pages/UserManagement'
 import ResetPassword from './pages/ResetPassword'
 import ChangePassword from './pages/ChangePassword'
+import DatabaseBackup from './pages/DatabaseBackup'
 import { I18nProvider, useI18n } from './i18n/I18nContext'
 
 // 配置axios拦截器
@@ -656,6 +657,13 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn, t, lang, changeLang }) => {
                               };
                               input.click();
                             }
+                          },
+                          {
+                            key: '6-3',
+                            label: '数据库备份',
+                            onClick: () => {
+                              navigate('/database-backup')
+                            }
                           }
                         ];
                       }
@@ -867,6 +875,14 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn, t, lang, changeLang }) => {
                                 };
                                 input.click();
                               }
+                            },
+                            {
+                              key: 'm6-3',
+                              label: '数据库备份',
+                              onClick: () => {
+                                setMobileMenuVisible(false);
+                                navigate('/database-backup')
+                              }
                             }
                           ];
                         }
@@ -913,6 +929,7 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn, t, lang, changeLang }) => {
                 <Route path="/reports" element={<Reports />} />
                 <Route path="/user-management" element={<UserManagement />} />
                 <Route path="/change-password" element={<ChangePassword />} />
+                <Route path="/database-backup" element={<DatabaseBackup />} />
                 <Route path="*" element={<Navigate to="/table-definition" replace />} />
               </Routes>
             </Content>

@@ -1,0 +1,26 @@
+uid=7_0 RootWebArea "实验室库存管理系统" url="http://localhost:3000/table-definition"
+  uid=7_1 banner
+    uid=7_2 button "menu" focusable focused
+    uid=7_3 heading "实验室库存管理系统" level="4"
+    uid=7_4 combobox autocomplete="list" expandable haspopup="listbox"
+    uid=7_5 StaticText "中文"
+    uid=7_6 StaticText " "
+    uid=7_7 button "退出登录"
+  uid=7_8 main
+    uid=7_9 StaticText "表格定义"
+    uid=7_10 StaticText "*"
+    uid=7_11 StaticText "表格名称"
+    uid=7_12 textbox "* 表格名称" required
+    uid=7_13 StaticText "字段名称"
+    uid=7_14 textbox "字段名称" required
+    uid=7_15 textbox "字段类型" disableable disabled value="string"
+    uid=7_16 checkbox "下拉显示  "
+    uid=7_17 StaticText "下拉显示"
+    uid=7_18 StaticText " "
+    uid=7_19 checkbox "是否自增  "
+    uid=7_20 StaticText "是否自增"
+    uid=7_21 StaticText " "
+    uid=7_22 textbox "前置字符串"
+    uid=7_23 button "删除数据" disableable disabled
+    uid=7_24 button "添加字段"
+    uid=7_25 button "保存表格"

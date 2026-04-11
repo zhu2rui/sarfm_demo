@@ -1,0 +1,14 @@
+uid=1_0 RootWebArea "实验室库存管理系统" url="http://localhost:3000/login"
+  uid=1_1 StaticText "实验室库存管理系统"
+  uid=1_2 StaticText "*"
+  uid=1_3 StaticText "用户名"
+  uid=1_4 image "user"
+  uid=1_5 textbox "* 用户名" required
+  uid=1_6 StaticText "*"
+  uid=1_7 StaticText "密码"
+  uid=1_8 image "lock"
+  uid=1_9 textbox "* 密码" required
+  uid=1_10 checkbox "30天内免登录  "
+  uid=1_11 StaticText "30天内免登录"
+  uid=1_12 StaticText " "
+  uid=1_13 button "登 录"

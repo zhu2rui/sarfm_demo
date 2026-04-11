@@ -1,0 +1,5 @@
+{
+  "backup_interval_days": 7,
+  "enabled": false,
+  "last_backup_time": null
+}
