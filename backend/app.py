@@ -50,7 +50,11 @@ import os
 from sqlalchemy import or_
 
 # 设置静态文件目录
-app.config['FRONTEND_DIST'] = os.path.join(get_app_root(), '..', 'frontend', 'dist')
+frontend_dist_path = os.path.join(get_app_root(), '..', 'frontend', 'dist')
+if os.path.exists(frontend_dist_path):
+    app.config['FRONTEND_DIST'] = frontend_dist_path
+else:
+    app.config['FRONTEND_DIST'] = os.path.join(get_app_root(), 'frontend_dist')
 
 # 确保JSON响应使用UTF-8编码
 @app.after_request
