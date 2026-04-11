@@ -574,6 +574,7 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn, t, lang, changeLang }) => {
                     },
                     ...(() => {
                       const user = JSON.parse(localStorage.getItem('user'));
+                      console.log('菜单渲染 - 用户信息:', user);
                       if (user && user.role === 'admin') {
                         return [
                           {
