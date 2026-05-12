@@ -163,7 +163,6 @@ const Login = ({ setIsLoggedIn, t }) => {
           </Form.Item>
           <Form.Item
             name="password"
-            rules={[{ required: true, message: t('login.password') + '!' }]}
             label={t('login.password')}
           >
             <Input

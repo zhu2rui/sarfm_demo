@@ -247,33 +247,45 @@ def login():
         logger.info(f'登录失败: 用户名 {username} 不存在')
         return jsonify({'code': 401, 'message': '用户名或密码错误', 'data': None}), 401
     
-    from werkzeug.security import check_password_hash
-    
-    # 检查密码是否为空，空密码的哈希值是固定格式，可以通过检查空字符串的哈希值来判断
-    from werkzeug.security import generate_password_hash
-    is_empty_password = check_password_hash(user.password, '')
+    from werkzeug.security import check_password_hash, generate_password_hash
+
+    # 检查密码是否为空（兼容scrypt等可能抛出异常的hash格式）
+    try:
+        is_empty_password = check_password_hash(user.password, '')
+    except Exception:
+        is_empty_password = (user.password == '')
     logger.info(f'用户 {username} 的密码哈希: {user.password}')
     logger.info(f'密码为空? {password == ""}, 是否是初始密码? {is_empty_password}')
-    
-    # 测试密码是否匹配
-    password_matches = check_password_hash(user.password, password)
+
+    # 测试密码是否匹配（兼容scrypt等可能抛出异常的hash格式）
+    try:
+        password_matches = check_password_hash(user.password, password)
+    except Exception:
+        password_matches = False
     logger.info(f'密码匹配? {password_matches}')
-    
+
     # 测试一些常用密码
-    common_passwords = ['admin123', 'leader123', 'member123', '123456']
-    for pwd in common_passwords:
-        if check_password_hash(user.password, pwd):
-            logger.info(f'常用密码 {pwd} 匹配!')
-    
-    # 检查是否使用默认密码登录
-    is_default_password = check_password_hash(user.password, '000000')
+    try:
+        for pwd in ['admin123', 'leader123', 'member123', '123456']:
+            if check_password_hash(user.password, pwd):
+                logger.info(f'常用密码 {pwd} 匹配!')
+    except Exception:
+        pass
+
+    # 检查是否使用默认密码登录（兼容scrypt等可能抛出异常的hash格式）
+    try:
+        is_default_password = check_password_hash(user.password, '000000')
+    except Exception:
+        is_default_password = False
     logger.info(f'是否使用默认密码? {is_default_password}, 密码是000000? {password == "000000"}')
-    
-    # 进行密码验证
-    if not check_password_hash(user.password, password):
+
+    # 进行密码验证（兼容scrypt等可能抛出异常的hash格式）
+    # 豁免条件：用户首次登录且密码是默认密码'000000'，允许空密码登录去重置
+    is_first_login_with_default = user.first_login and is_default_password
+    if not password_matches and not is_first_login_with_default:
         logger.info(f'登录失败: 用户名 {username} 的密码不正确')
         return jsonify({'code': 401, 'message': '用户名或密码错误', 'data': None}), 401
-    
+
     # 如果是首次登录或使用默认密码登录，需要重置密码
     if user.first_login or (is_default_password and password == "000000"):
         logger.info(f'首次登录或使用默认密码: 用户 {username} 需要重置密码')
