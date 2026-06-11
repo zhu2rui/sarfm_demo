@@ -41,7 +41,8 @@ const langConfig = {
       tableNameRequired: '表格名称不能为空',
       columnNameRequired: '字段名称不能为空',
       success: '表格定义成功',
-      noTables: '暂无已定义表格'
+      noTables: '暂无已定义表格',
+      storageColumn: '存储列'
     },
     // 数据管理
     dataManagement: {
@@ -87,6 +88,58 @@ const langConfig = {
     // 权限相关
     permission: {
       noPermission: '无权限操作'
+    },
+    // 冻存管理
+    cryo: {
+      title: '冻存管理',
+      tankManagement: '液氮罐管理',
+      tankName: '液氮罐名称',
+      tankDescription: '液氮罐描述',
+      addTank: '添加液氮罐',
+      editTank: '编辑液氮罐',
+      deleteTank: '删除液氮罐',
+      tankNameRequired: '液氮罐名称不能为空',
+      tankAddSuccess: '液氮罐添加成功',
+      tankUpdateSuccess: '液氮罐更新成功',
+      tankDeleteSuccess: '液氮罐删除成功',
+      confirmDeleteTank: '确定要删除此液氮罐吗？这将同时删除其下所有盒子和数据！',
+      noTanks: '暂无液氮罐',
+      boxManagement: '冻存盒管理',
+      boxName: '盒子名称',
+      boxDescription: '盒子描述',
+      addBox: '添加冻存盒',
+      editBox: '编辑冻存盒',
+      deleteBox: '删除冻存盒',
+      boxNameRequired: '盒子名称不能为空',
+      boxAddSuccess: '冻存盒添加成功',
+      boxUpdateSuccess: '冻存盒更新成功',
+      boxDeleteSuccess: '冻存盒删除成功',
+      confirmDeleteBox: '确定要删除此冻存盒吗？这将同时删除其下所有格子数据！',
+      noBoxes: '暂无冻存盒，请先添加一个盒子',
+      columns: '字段定义',
+      addColumn: '添加字段',
+      columnName: '字段名称',
+      columnNameRequired: '字段名称不能为空',
+      gridView: '网格视图',
+      backToBoxes: '返回盒子列表',
+      occupied: '已占用',
+      empty: '空',
+      fillCell: '填写/编辑格子数据',
+      clearCell: '清空格子',
+      confirmClearCell: '确定要清空此格子的数据吗？',
+      cellCleared: '格子已清空',
+      cellSaved: '格子数据已保存',
+      selectBox: '选择盒子',
+      boxOverview: '盒子概览',
+      gridLabel: '网格',
+      rows: '行',
+      cols: '列',
+      selectStoragePosition: '选择存储位置',
+      selectedPositions: '已选位置',
+      confirmSelection: '确认选择',
+      positionOccupied: '该位置已被占用',
+      viewData: '查看关联数据',
+      linkedFrom: '关联自'
     }
   },
   en: {
@@ -130,7 +183,8 @@ const langConfig = {
       tableNameRequired: 'Table name is required',
       columnNameRequired: 'Column name is required',
       success: 'Table defined successfully',
-      noTables: 'No tables defined yet'
+      noTables: 'No tables defined yet',
+      storageColumn: 'Storage Column'
     },
     // 数据管理
     dataManagement: {
@@ -176,6 +230,58 @@ const langConfig = {
     // 权限相关
     permission: {
       noPermission: 'No permission to operate'
+    },
+    // Cryo Management
+    cryo: {
+      title: 'Cryo Management',
+      tankManagement: 'Tank Management',
+      tankName: 'Tank Name',
+      tankDescription: 'Tank Description',
+      addTank: 'Add Tank',
+      editTank: 'Edit Tank',
+      deleteTank: 'Delete Tank',
+      tankNameRequired: 'Tank name is required',
+      tankAddSuccess: 'Tank added successfully',
+      tankUpdateSuccess: 'Tank updated successfully',
+      tankDeleteSuccess: 'Tank deleted successfully',
+      confirmDeleteTank: 'Delete this tank and all its boxes and data?',
+      noTanks: 'No tanks yet',
+      boxManagement: 'Box Management',
+      boxName: 'Box Name',
+      boxDescription: 'Box Description',
+      addBox: 'Add Box',
+      editBox: 'Edit Box',
+      deleteBox: 'Delete Box',
+      boxNameRequired: 'Box name is required',
+      boxAddSuccess: 'Box added successfully',
+      boxUpdateSuccess: 'Box updated successfully',
+      boxDeleteSuccess: 'Box deleted successfully',
+      confirmDeleteBox: 'Delete this box and all its cell data?',
+      noBoxes: 'No boxes yet, please add a box first',
+      columns: 'Column Definitions',
+      addColumn: 'Add Column',
+      columnName: 'Column Name',
+      columnNameRequired: 'Column name is required',
+      gridView: 'Grid View',
+      backToBoxes: 'Back to Boxes',
+      occupied: 'Occupied',
+      empty: 'Empty',
+      fillCell: 'Fill/Edit Cell Data',
+      clearCell: 'Clear Cell',
+      confirmClearCell: 'Clear this cell data?',
+      cellCleared: 'Cell cleared',
+      cellSaved: 'Cell data saved',
+      selectBox: 'Select Box',
+      boxOverview: 'Box Overview',
+      gridLabel: 'Grid',
+      rows: 'Rows',
+      cols: 'Cols',
+      selectStoragePosition: 'Select Storage Position',
+      selectedPositions: 'Selected Positions',
+      confirmSelection: 'Confirm Selection',
+      positionOccupied: 'Position is occupied',
+      viewData: 'View Linked Data',
+      linkedFrom: 'Linked from'
     }
   }
 };

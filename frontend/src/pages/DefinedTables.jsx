@@ -102,7 +102,8 @@ const DefinedTables = () => {
       ...column,
       dropDown: column.dropDown || false,
       autoIncrement: column.autoIncrement || false,
-      prefix: column.prefix || ''
+      prefix: column.prefix || '',
+      is_storage: column.is_storage || false
     }))
     editForm.setFieldsValue({
       tableName: table.table_name,
@@ -398,8 +399,29 @@ const DefinedTables = () => {
                         name={[name, 'autoIncrement']}
                         valuePropName="checked"
                         noStyle
+                        getValueFromEvent={(e) => {
+                          if (e.target.checked) {
+                            editForm.setFieldsValue({ columns: editForm.getFieldValue('columns').map((col, i) => i === name ? {...col, is_storage: false} : col) });
+                          }
+                          return e.target.checked;
+                        }}
                       >
                         <Checkbox>是否自增</Checkbox>
+                      </Form.Item>
+                      {/* 存储列配置 */}
+                      <Form.Item
+                        {...restField}
+                        name={[name, 'is_storage']}
+                        valuePropName="checked"
+                        noStyle
+                        getValueFromEvent={(e) => {
+                          if (e.target.checked) {
+                            editForm.setFieldsValue({ columns: editForm.getFieldValue('columns').map((col, i) => i === name ? {...col, autoIncrement: false} : col) });
+                          }
+                          return e.target.checked;
+                        }}
+                      >
+                        <Checkbox>存储列</Checkbox>
                       </Form.Item>
                       {/* 前缀输入框 */}
                       <Form.Item
@@ -418,7 +440,7 @@ const DefinedTables = () => {
                     </Space>
                   ))}
                   <Form.Item>
-                    <Button type="dashed" onClick={() => add({ column_name: '', data_type: 'string', dropDown: false, autoIncrement: false, prefix: '' })} block>
+                    <Button type="dashed" onClick={() => add({ column_name: '', data_type: 'string', dropDown: false, autoIncrement: false, prefix: '', is_storage: false })} block>
                         + 添加列
                       </Button>
                   </Form.Item>

@@ -2217,7 +2217,7 @@ const MultiSelectDelete = ({
         
         /* 高亮行样式 - 简化为蓝色边框框住整行 */
         .ant-table-tbody > tr.highlighted-row {
-          animation: highlightFlash 2s ease-in-out 3 !important;
+          animation: highlightFlash 1s ease-in-out 2 !important;
           animation-fill-mode: both !important;
         }
         

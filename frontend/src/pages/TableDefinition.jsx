@@ -13,7 +13,7 @@ const TableDefinition = () => {
   // 初始值，包含一列默认列
   const initialValues = {
     tableName: '',
-    columns: [{ column_name: '', data_type: 'string', dropDown: false, autoIncrement: false, prefix: '' }]
+    columns: [{ column_name: '', data_type: 'string', dropDown: false, autoIncrement: false, prefix: '', is_storage: false }]
   }
 
   // 提交表格结构
@@ -84,8 +84,29 @@ const TableDefinition = () => {
                       name={[name, 'autoIncrement']}
                       valuePropName="checked"
                       noStyle
+                      getValueFromEvent={(e) => {
+                        if (e.target.checked) {
+                          form.setFieldsValue({ columns: form.getFieldValue('columns').map((col, i) => i === name ? {...col, is_storage: false} : col) });
+                        }
+                        return e.target.checked;
+                      }}
                     >
                       <Checkbox>是否自增</Checkbox>
+                    </Form.Item>
+                    {/* 存储列配置 */}
+                    <Form.Item
+                      {...restField}
+                      name={[name, 'is_storage']}
+                      valuePropName="checked"
+                      noStyle
+                      getValueFromEvent={(e) => {
+                        if (e.target.checked) {
+                          form.setFieldsValue({ columns: form.getFieldValue('columns').map((col, i) => i === name ? {...col, autoIncrement: false} : col) });
+                        }
+                        return e.target.checked;
+                      }}
+                    >
+                      <Checkbox>{t('tableDefinition.storageColumn')}</Checkbox>
                     </Form.Item>
                     {/* 前缀输入框 - 简化实现，直接显示 */}
                     <Form.Item
@@ -104,7 +125,7 @@ const TableDefinition = () => {
                   </Space>
                 ))}
                 <Form.Item>
-                  <Button type="dashed" onClick={() => add({ column_name: '', data_type: 'string', dropDown: false, autoIncrement: false, prefix: '' })} block>
+                  <Button type="dashed" onClick={() => add({ column_name: '', data_type: 'string', dropDown: false, autoIncrement: false, prefix: '', is_storage: false })} block>
                     {t('tableDefinition.addColumn')}
                   </Button>
                 </Form.Item>

@@ -156,6 +156,38 @@ class BugReport(db.Model):
     created_at = db.Column(db.DateTime, default=db.func.now())
     updated_at = db.Column(db.DateTime, default=db.func.now(), onupdate=db.func.now())
 
+# 液氮罐模型
+class NitrogenTank(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(255), nullable=False)
+    description = db.Column(db.Text, default='')
+    created_at = db.Column(db.DateTime, default=db.func.now())
+    updated_at = db.Column(db.DateTime, default=db.func.now(), onupdate=db.func.now())
+
+# 冻存盒模型
+class CryoBox(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    tank_id = db.Column(db.Integer, db.ForeignKey('nitrogen_tank.id'), nullable=False)
+    box_name = db.Column(db.String(255), nullable=False)
+    box_description = db.Column(db.Text, default='')
+    columns = db.Column(db.Text, nullable=False)  # JSON格式字段定义
+    created_at = db.Column(db.DateTime, default=db.func.now())
+    updated_at = db.Column(db.DateTime, default=db.func.now(), onupdate=db.func.now())
+
+# 冻存位置模型
+class CryoCell(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    box_id = db.Column(db.Integer, db.ForeignKey('cryo_box.id'), nullable=False)
+    row = db.Column(db.Integer, nullable=False)  # 1-9 (对应 A-I)
+    col = db.Column(db.Integer, nullable=False)  # 1-9
+    data = db.Column(db.Text, nullable=False)  # JSON格式: {"字段名": "值", ...}
+    linked_table_id = db.Column(db.Integer, nullable=True)  # 关联的表格ID（通过存储列关联）
+    linked_data_id = db.Column(db.Integer, nullable=True)   # 关联的数据行ID
+    created_at = db.Column(db.DateTime, default=db.func.now())
+    updated_at = db.Column(db.DateTime, default=db.func.now(), onupdate=db.func.now())
+
+    __table_args__ = (db.UniqueConstraint('box_id', 'row', 'col', name='_box_row_col_unique'),)
+
 # JWT认证装饰器
 def token_required(f):
     @wraps(f)
@@ -957,13 +989,13 @@ def add_inventory_data(current_user, table_id):
         if column.get('autoIncrement'):
             column_name = column['column_name']
             prefix = column.get('prefix', '')
-            
+
             # 获取或创建自增序列
             sequence = AutoIncrementSequence.query.filter_by(
                 table_id=table_id,
                 column_name=column_name
             ).first()
-            
+
             if not sequence:
                 # 创建新的自增序列
                 sequence = AutoIncrementSequence(
@@ -972,19 +1004,46 @@ def add_inventory_data(current_user, table_id):
                     current_value=0
                 )
                 db.session.add(sequence)
-            
+
             # 递增序列值
             sequence.current_value += 1
-            
+
             # 生成自增值
             auto_value = f"{prefix}{sequence.current_value}"
-            
+
             # 将自增值添加到数据中
             inventory_data[column_name] = auto_value
-    
+
+    # 验证并处理存储列
+    storage_positions_to_link = []  # [(column_name, position_info), ...]
+    for column in columns:
+        if column.get('is_storage'):
+            col_name = column['column_name']
+            storage_data = inventory_data.get(col_name)
+            if not storage_data or not isinstance(storage_data, dict) or not storage_data.get('_storage'):
+                continue
+            positions = storage_data.get('_positions', [])
+            if not positions:
+                continue
+            for pos in positions:
+                box_id = pos.get('box_id')
+                row = pos.get('row')
+                col = pos.get('col')
+                if not box_id or not row or not col:
+                    return jsonify({'code': 400, 'message': f'存储位置格式错误: {pos}', 'data': None}), 400
+                # 检查盒子存在
+                box = CryoBox.query.get(box_id)
+                if not box:
+                    return jsonify({'code': 400, 'message': f'冻存盒不存在: {box_id}', 'data': None}), 400
+                # 检查位置是否已被其他数据占用
+                existing = CryoCell.query.filter_by(box_id=box_id, row=row, col=col).first()
+                if existing and existing.linked_table_id and existing.linked_data_id:
+                    return jsonify({'code': 400, 'message': f'位置 {pos.get("label", "")} 已被占用', 'data': None}), 400
+                storage_positions_to_link.append((col_name, pos))
+
     # 将库存数据转换为JSON字符串
     data_json = json.dumps(inventory_data)
-    
+
     try:
         new_data = InventoryData(
             table_id=table_id,
@@ -992,8 +1051,43 @@ def add_inventory_data(current_user, table_id):
             created_by=current_user.id
         )
         db.session.add(new_data)
-        db.session.commit()
-        
+        db.session.flush()  # 获取 new_data.id 但不提交
+
+        # 关联存储位置到冻存格（同一事务）
+        for col_name, pos in storage_positions_to_link:
+            box_id = pos['box_id']
+            row = pos['row']
+            col_val = pos['col']
+            existing = CryoCell.query.filter_by(box_id=box_id, row=row, col=col_val).first()
+            row_data = {}
+            for k, v in inventory_data.items():
+                if isinstance(v, dict) and v.get('_storage'):
+                    row_data[k] = v.get('_text', '')
+                else:
+                    row_data[k] = v
+            cell_data = {
+                '_linked': True,
+                '_table_id': table_id,
+                '_data_id': new_data.id,
+                '_table_name': table.table_name,
+                '_table_columns': columns,
+                '_row_data': row_data
+            }
+            if existing:
+                existing.data = json.dumps(cell_data, ensure_ascii=False)
+                existing.linked_table_id = table_id
+                existing.linked_data_id = new_data.id
+            else:
+                new_cell = CryoCell(
+                    box_id=box_id, row=row, col=col_val,
+                    data=json.dumps(cell_data, ensure_ascii=False),
+                    linked_table_id=table_id,
+                    linked_data_id=new_data.id
+                )
+                db.session.add(new_cell)
+
+        db.session.commit()  # 一次性提交：InventoryData + 所有 CryoCell
+
         return jsonify({
             'code': 200,
             'message': '库存数据添加成功',
@@ -1008,7 +1102,10 @@ def add_inventory_data(current_user, table_id):
         }), 200
     except Exception as e:
         db.session.rollback()
-        return jsonify({'code': 500, 'message': f'添加库存数据失败: {str(e)}', 'data': None}), 500
+        err_msg = str(e)
+        if 'UNIQUE constraint' in err_msg or 'duplicate' in err_msg.lower():
+            return jsonify({'code': 400, 'message': '所选位置已被占用，请重新选择', 'data': None}), 400
+        return jsonify({'code': 500, 'message': f'添加库存数据失败: {err_msg}', 'data': None}), 500
 
 # 获取库存数据列表
 @app.route('/api/v1/tables/<int:table_id>/data', methods=['GET'])
@@ -1161,15 +1258,100 @@ def update_inventory_data(current_user, table_id, data_id):
     
     data = request.get_json()
     new_data = data.get('data')
-    
+
     if not new_data or not isinstance(new_data, dict):
         return jsonify({'code': 400, 'message': '数据格式错误', 'data': None}), 400
-    
+
+    # 解析旧数据，释放之前占用的存储位置
+    old_data_obj = json.loads(inventory_data.data) if isinstance(inventory_data.data, str) else inventory_data.data
+    columns = json.loads(table.columns)
+    for column in columns:
+        if column.get('is_storage'):
+            col_name = column['column_name']
+            old_storage = old_data_obj.get(col_name)
+            if isinstance(old_storage, dict) and old_storage.get('_storage'):
+                old_positions = old_storage.get('_positions', [])
+                new_storage = new_data.get(col_name)
+                new_positions = []
+                if isinstance(new_storage, dict) and new_storage.get('_storage'):
+                    new_positions = new_storage.get('_positions', [])
+                # 找出被移除的位置（在旧不在新）
+                new_pos_keys = {(p['box_id'], p['row'], p['col']) for p in new_positions}
+                for old_pos in old_positions:
+                    key = (old_pos['box_id'], old_pos['row'], old_pos['col'])
+                    if key not in new_pos_keys:
+                        cell = CryoCell.query.filter_by(
+                            box_id=old_pos['box_id'], row=old_pos['row'], col=old_pos['col']
+                        ).first()
+                        if cell:
+                            cell.data = '{}'
+                            cell.linked_table_id = None
+                            cell.linked_data_id = None
+
+    # 验证并处理新的存储位置
+    storage_positions_to_link = []
+    for column in columns:
+        if column.get('is_storage'):
+            col_name = column['column_name']
+            storage_data = new_data.get(col_name)
+            if not storage_data or not isinstance(storage_data, dict) or not storage_data.get('_storage'):
+                continue
+            positions = storage_data.get('_positions', [])
+            if not positions:
+                continue
+            for pos in positions:
+                box_id = pos.get('box_id')
+                row = pos.get('row')
+                col = pos.get('col')
+                if not box_id or not row or not col:
+                    return jsonify({'code': 400, 'message': f'存储位置格式错误: {pos}', 'data': None}), 400
+                box = CryoBox.query.get(box_id)
+                if not box:
+                    return jsonify({'code': 400, 'message': f'冻存盒不存在: {box_id}', 'data': None}), 400
+                existing = CryoCell.query.filter_by(box_id=box_id, row=row, col=col).first()
+                if existing and existing.linked_data_id and existing.linked_data_id != data_id:
+                    return jsonify({'code': 400, 'message': f'位置 {pos.get("label", "")} 已被占用', 'data': None}), 400
+                storage_positions_to_link.append((col_name, pos))
+
     # 更新库存数据
     inventory_data.data = json.dumps(new_data)
-    
+
     try:
-        db.session.commit()
+        # 关联新存储位置（同一事务内）
+        for col_name, pos in storage_positions_to_link:
+            box_id = pos['box_id']
+            row = pos['row']
+            col_val = pos['col']
+            existing = CryoCell.query.filter_by(box_id=box_id, row=row, col=col_val).first()
+            row_data = {}
+            for k, v in new_data.items():
+                if isinstance(v, dict) and v.get('_storage'):
+                    row_data[k] = v.get('_text', '')
+                else:
+                    row_data[k] = v
+            cell_data = {
+                '_linked': True,
+                '_table_id': table_id,
+                '_data_id': data_id,
+                '_table_name': table.table_name,
+                '_table_columns': columns,
+                '_row_data': row_data
+            }
+            if existing:
+                existing.data = json.dumps(cell_data, ensure_ascii=False)
+                existing.linked_table_id = table_id
+                existing.linked_data_id = data_id
+            else:
+                new_cell = CryoCell(
+                    box_id=box_id, row=row, col=col_val,
+                    data=json.dumps(cell_data, ensure_ascii=False),
+                    linked_table_id=table_id,
+                    linked_data_id=data_id
+                )
+                db.session.add(new_cell)
+
+        db.session.commit()  # 一次性提交：旧位释放 + 数据更新 + 新位关联
+
         return jsonify({
             'code': 200,
             'message': '库存数据更新成功',
@@ -1184,7 +1366,28 @@ def update_inventory_data(current_user, table_id, data_id):
         }), 200
     except Exception as e:
         db.session.rollback()
-        return jsonify({'code': 500, 'message': f'更新库存数据失败: {str(e)}', 'data': None}), 500
+        err_msg = str(e)
+        if 'UNIQUE constraint' in err_msg or 'duplicate' in err_msg.lower():
+            return jsonify({'code': 400, 'message': '所选位置已被占用，请重新选择', 'data': None}), 400
+        return jsonify({'code': 500, 'message': f'更新库存数据失败: {err_msg}', 'data': None}), 500
+
+def _release_linked_positions(inventory_data_row):
+    """释放一条库存数据占用的所有冻存位置"""
+    try:
+        data_obj = json.loads(inventory_data_row.data) if isinstance(inventory_data_row.data, str) else inventory_data_row.data
+        for key, value in data_obj.items():
+            if isinstance(value, dict) and value.get('_storage'):
+                for pos in value.get('_positions', []):
+                    cell = CryoCell.query.filter_by(
+                        box_id=pos['box_id'], row=pos['row'], col=pos['col']
+                    ).first()
+                    if cell:
+                        cell.data = '{}'
+                        cell.linked_table_id = None
+                        cell.linked_data_id = None
+    except Exception:
+        pass
+
 
 # 删除库存数据
 @app.route('/api/v1/tables/<int:table_id>/data/<int:data_id>', methods=['DELETE'])
@@ -1194,16 +1397,19 @@ def delete_inventory_data(current_user, table_id, data_id):
     table = TableStructure.query.get(table_id)
     if not table:
         return jsonify({'code': 404, 'message': '表格结构不存在', 'data': None}), 404
-    
+
     # 检查用户权限，只有管理员和组长可以删除数据
     if current_user.role not in ['admin', 'leader']:
         return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
-    
+
     # 获取库存数据
     inventory_data = InventoryData.query.filter_by(id=data_id, table_id=table_id).first()
     if not inventory_data:
         return jsonify({'code': 404, 'message': '库存数据不存在', 'data': None}), 404
-    
+
+    # 释放关联的冻存位置
+    _release_linked_positions(inventory_data)
+
     try:
         db.session.delete(inventory_data)
         db.session.commit()
@@ -1233,6 +1439,11 @@ def batch_delete_inventory_data(current_user, table_id):
         return jsonify({'code': 400, 'message': '删除ID列表不能为空', 'data': None}), 400
     
     try:
+        # 释放每条数据关联的冻存位置
+        rows_to_delete = InventoryData.query.filter_by(table_id=table_id).filter(InventoryData.id.in_(ids)).all()
+        for row in rows_to_delete:
+            _release_linked_positions(row)
+
         # 执行批量删除
         deleted_count = InventoryData.query.filter_by(table_id=table_id).filter(InventoryData.id.in_(ids)).delete(synchronize_session=False)
         db.session.commit()
@@ -1748,7 +1959,7 @@ def export_all_data(current_user):
             
             # 写入列属性工作表
             # 列属性表头
-            properties_headers = ['column_name', 'data_type', 'dropDown', 'autoIncrement', 'prefix', 'hidden']
+            properties_headers = ['column_name', 'data_type', 'dropDown', 'autoIncrement', 'prefix', 'hidden', 'is_storage']
             print(f"写入属性工作表表头: {properties_headers}")
             headers_result = properties_ws.append(properties_headers)
             print(f"写入表头结果: {headers_result}")
@@ -1766,7 +1977,8 @@ def export_all_data(current_user):
                     col.get('dropDown', False),
                     col.get('autoIncrement', False),
                     col.get('prefix', ''),
-                    col.get('hidden', False)
+                    col.get('hidden', False),
+                    col.get('is_storage', False)
                 ]
                 print(f"写入第{i+1}列属性: {properties_row}")
                 row_result = properties_ws.append(properties_row)
@@ -1813,13 +2025,13 @@ def export_all_data(current_user):
                         if value is None:
                             value = ''
                         
-                        # 处理链接对象，提取文本部分
+                        # 处理链接对象和存储对象，提取文本部分
                         if isinstance(value, dict):
-                            # 如果是链接对象，提取_text属性
                             if '_text' in value:
                                 value = value['_text']
+                            elif '_storage' in value:
+                                value = value.get('_text', '')
                             else:
-                                # 其他字典类型，转换为JSON字符串
                                 value = json.dumps(value)
                         
                         # 确保value是基本类型，可被Excel处理
@@ -1855,6 +2067,60 @@ def export_all_data(current_user):
                     row_values = [cell.value for cell in row]
                     print(f"第{i}行: {row_values}")
         
+        # ===== 导出冻存数据 =====
+        print("\n===== 开始导出冻存管理数据 =====")
+        tanks = NitrogenTank.query.all()
+        if tanks:
+            # Tanks sheet
+            tank_ws = wb.create_sheet(title='_cryo_tanks')
+            tank_ws.append(['id', 'name', 'description', 'created_at'])
+            for t in tanks:
+                tank_ws.append([t.id, t.name, t.description or '',
+                    t.created_at.strftime('%Y-%m-%d %H:%M:%S') if t.created_at else ''])
+            print(f"导出 {len(tanks)} 个液氮罐")
+
+            # Boxes sheet
+            box_ws = wb.create_sheet(title='_cryo_boxes')
+            box_ws.append(['id', 'tank_name', 'box_name', 'box_description', 'created_at'])
+            boxes = CryoBox.query.all()
+            for b in boxes:
+                tank = NitrogenTank.query.get(b.tank_id)
+                box_ws.append([b.id, tank.name if tank else '', b.box_name,
+                    b.box_description or '',
+                    b.created_at.strftime('%Y-%m-%d %H:%M:%S') if b.created_at else ''])
+            print(f"导出 {len(boxes)} 个冻存盒")
+
+            # Cells sheet
+            cell_ws = wb.create_sheet(title='_cryo_cells')
+            cell_ws.append(['box_name', 'row', 'col', 'label', 'is_manual', 'reason',
+                'linked_table_name', 'linked_data_index'])
+            cells = CryoCell.query.all()
+            # Pre-build data row index lookup: {table_id: {data_id: index}}
+            data_index_map = {}
+            for table in tables:
+                all_rows = InventoryData.query.filter_by(table_id=table.id).order_by(InventoryData.created_at).all()
+                data_index_map[table.id] = {row.id: idx for idx, row in enumerate(all_rows)}
+            for c in cells:
+                box = CryoBox.query.get(c.box_id)
+                box_name = box.box_name if box else ''
+                cell_data = json.loads(c.data) if c.data else {}
+                is_manual = cell_data.get('_manual', False)
+                reason = cell_data.get('_reason', '')
+                label = f'{ROW_LABELS[c.row-1]}{c.col}'
+
+                # Linked info for re-linking on import
+                linked_table_name = ''
+                linked_data_index = ''
+                if c.linked_table_id and c.linked_data_id:
+                    lt = TableStructure.query.get(c.linked_table_id)
+                    linked_table_name = lt.table_name if lt else ''
+                    idx_map = data_index_map.get(c.linked_table_id, {})
+                    linked_data_index = str(idx_map.get(c.linked_data_id, ''))
+
+                cell_ws.append([box_name, c.row, c.col, label, str(is_manual), reason,
+                    linked_table_name, linked_data_index])
+            print(f"导出 {len(cells)} 个冻存格子")
+
         # 将工作簿保存到BytesIO对象
         print("\n=== 开始保存工作簿到BytesIO对象 ===")
         output = BytesIO()
@@ -1947,6 +2213,8 @@ def import_data(current_user):
         properties_sheets = {}
         
         for sheet_name in wb.sheetnames:
+            if sheet_name.startswith('_cryo_'):
+                continue  # 冻存数据工作表，稍后单独处理
             if sheet_name.endswith('_属性'):
                 # 属性工作表，提取原始表格名称
                 original_table_name = sheet_name[:-3]  # 移除'_属性'后缀
@@ -2054,7 +2322,7 @@ def import_data(current_user):
                         print(f"属性工作表{properties_sheet_name}的表头: {properties_header}")
                         
                         # 验证属性表头
-                        expected_headers = ['column_name', 'data_type', 'dropDown', 'autoIncrement', 'prefix', 'hidden']
+                        expected_headers = ['column_name', 'data_type', 'dropDown', 'autoIncrement', 'prefix', 'hidden', 'is_storage']
                         if list(properties_header) != expected_headers:
                             print(f"属性工作表{properties_sheet_name}表头不匹配，使用默认配置")
                             # 使用默认配置
@@ -2074,7 +2342,8 @@ def import_data(current_user):
                                         'dropDown': bool(row[2]),
                                         'autoIncrement': bool(row[3]),
                                         'prefix': row[4] or '',
-                                        'hidden': bool(row[5])
+                                        'hidden': bool(row[5]),
+                                        'is_storage': bool(row[6]) if len(row) > 6 else False
                                     })
                             print(f"成功读取表格{sheet_name}的列属性: {len(columns_def)}列")
                 except Exception as e:
@@ -2093,7 +2362,8 @@ def import_data(current_user):
                     columns_def.append({
                         'column_name': header,
                         'data_type': 'string',
-                        'hidden': False
+                        'hidden': False,
+                        'is_storage': False
                     })
             
             print(f"表格{sheet_name}的列配置: {columns_def}")
@@ -2282,7 +2552,178 @@ def import_data(current_user):
         )
         db.session.add(log)
         db.session.commit()
-        
+
+        # ===== 导入冻存数据 =====
+        cryo_results = []
+        try:
+            # Name → ID lookups built during import
+            tank_name_to_id = {}
+            box_name_to_id = {}
+
+            # Import tanks
+            if '_cryo_tanks' in wb.sheetnames:
+                tws = wb['_cryo_tanks']
+                rows = list(tws.iter_rows(min_row=2, values_only=True))
+                for row in rows:
+                    if not row[1]:
+                        continue
+                    existing = NitrogenTank.query.filter_by(name=row[1]).first()
+                    if not existing:
+                        tank = NitrogenTank(name=row[1], description=row[2] or '')
+                        db.session.add(tank)
+                        db.session.flush()
+                        tank_name_to_id[row[1]] = tank.id
+                    else:
+                        tank_name_to_id[row[1]] = existing.id
+                cryo_results.append(f"Imported {len(rows)} tanks")
+
+            # Import boxes
+            if '_cryo_boxes' in wb.sheetnames:
+                bws = wb['_cryo_boxes']
+                rows = list(bws.iter_rows(min_row=2, values_only=True))
+                for row in rows:
+                    tank_name = row[1]
+                    box_name = row[2]
+                    if not box_name:
+                        continue
+                    tank_id = tank_name_to_id.get(tank_name)
+                    if not tank_id:
+                        continue
+                    existing = CryoBox.query.filter_by(tank_id=tank_id, box_name=box_name).first()
+                    if not existing:
+                        box = CryoBox(tank_id=tank_id, box_name=box_name,
+                            box_description=row[3] or '', columns='[]')
+                        db.session.add(box)
+                        db.session.flush()
+                        box_name_to_id[f"{tank_name}|{box_name}"] = box.id
+                    else:
+                        box_name_to_id[f"{tank_name}|{box_name}"] = existing.id
+                cryo_results.append(f"Imported {len(rows)} boxes")
+
+            db.session.commit()
+
+            # Import cells and re-link
+            if '_cryo_cells' in wb.sheetnames:
+                cws = wb['_cryo_cells']
+                rows = list(cws.iter_rows(min_row=2, values_only=True))
+                linked_cells = []
+                for row in rows:
+                    box_name = row[0]
+                    cell_row = int(row[1]) if row[1] else 0
+                    cell_col = int(row[2]) if row[2] else 0
+                    is_manual = row[4] == 'True'
+                    reason = row[5] or ''
+                    linked_table_name = row[6] or ''
+                    linked_data_index_str = str(row[7] or '')
+
+                    # Find box
+                    box_id = None
+                    for key, bid in box_name_to_id.items():
+                        if key.endswith(f"|{box_name}"):
+                            box_id = bid
+                            break
+
+                    if not box_id or not (1 <= cell_row <= 9) or not (1 <= cell_col <= 9):
+                        continue
+
+                    # Check if cell already exists
+                    existing = CryoCell.query.filter_by(box_id=box_id, row=cell_row, col=cell_col).first()
+                    if existing:
+                        continue
+
+                    # Build cell data
+                    cell_data = {}
+                    if is_manual:
+                        cell_data = {'_manual': True, '_reason': reason}
+                    elif linked_table_name and linked_data_index_str:
+                        # Find linked table and data row by index
+                        lt = TableStructure.query.filter_by(table_name=linked_table_name).first()
+                        if lt:
+                            all_rows = InventoryData.query.filter_by(table_id=lt.id).order_by(InventoryData.created_at).all()
+                            ld_idx = int(linked_data_index_str)
+                            if 0 <= ld_idx < len(all_rows):
+                                ld = all_rows[ld_idx]
+                                cell_data = {
+                                    '_linked': True,
+                                    '_table_id': lt.id,
+                                    '_data_id': ld.id,
+                                    '_table_name': lt.table_name,
+                                    '_table_columns': json.loads(lt.columns),
+                                    '_row_data': json.loads(ld.data)
+                                }
+                                linked_cells.append((box_id, cell_row, cell_col, lt.id, ld.id))
+
+                    if cell_data:
+                        cell = CryoCell(box_id=box_id, row=cell_row, col=cell_col,
+                            data=json.dumps(cell_data, ensure_ascii=False))
+                        if linked_cells and linked_cells[-1][0] == box_id and linked_cells[-1][1] == cell_row and linked_cells[-1][2] == cell_col:
+                            cell.linked_table_id = linked_cells[-1][3]
+                            cell.linked_data_id = linked_cells[-1][4]
+                        db.session.add(cell)
+
+                db.session.commit()
+                # Rebuild storage column links in table data
+                relinked = 0
+                for table_name in imported_tables:
+                    table = TableStructure.query.filter_by(table_name=table_name).first()
+                    if not table:
+                        continue
+                    columns = json.loads(table.columns)
+                    storage_cols = [c['column_name'] for c in columns if c.get('is_storage')]
+                    if not storage_cols:
+                        continue
+
+                    all_data = InventoryData.query.filter_by(table_id=table.id).all()
+                    for data_row in all_data:
+                        row_dict = json.loads(data_row.data)
+                        for col_name in storage_cols:
+                            # Find cryo cells linked to this data row
+                            linked_cells = CryoCell.query.filter_by(
+                                linked_table_id=table.id,
+                                linked_data_id=data_row.id
+                            ).all()
+
+                            if not linked_cells:
+                                # If the original value was a storage text string, keep it as-is
+                                continue
+
+                            positions = []
+                            for lc in linked_cells:
+                                box = CryoBox.query.get(lc.box_id)
+                                tank = NitrogenTank.query.get(box.tank_id) if box else None
+                                positions.append({
+                                    'tank_id': tank.id if tank else None,
+                                    'tank_name': tank.name if tank else '',
+                                    'box_id': lc.box_id,
+                                    'box_name': box.box_name if box else '',
+                                    'row': lc.row,
+                                    'col': lc.col,
+                                    'label': f'{ROW_LABELS[lc.row-1]}{lc.col}'
+                                })
+
+                            text_parts = [f"{p['tank_name']} > {p['box_name']} > {p['label']}" for p in positions]
+                            row_dict[col_name] = {
+                                '_storage': True,
+                                '_positions': positions,
+                                '_text': ', '.join(text_parts)
+                            }
+                            relinked += 1
+
+                        data_row.data = json.dumps(row_dict, ensure_ascii=False)
+
+                if relinked:
+                    db.session.commit()
+                    cryo_results.append(f"Relinked {relinked} storage columns")
+
+                cryo_results.append(f"Imported {len(rows)} cells")
+
+        except Exception as e:
+            print(f"Import cryo data error: {e}")
+            cryo_results.append(f"Cryo import partial: {str(e)}")
+
+        if cryo_results:
+            results.append({'cryo_import': cryo_results})
+
         return jsonify({
             'code': 200,
             'message': '数据导入成功',
@@ -2503,6 +2944,456 @@ def delete_backup_api(current_user, filename):
         return jsonify({'code': 200, 'message': '删除成功', 'data': None}), 200
     except Exception as e:
         return jsonify({'code': 500, 'message': f'删除失败: {str(e)}', 'data': None}), 500
+
+# ========== 冻存管理 API ==========
+
+# ---------- 液氮罐 CRUD ----------
+
+@app.route('/api/v1/cryo-tanks', methods=['GET'])
+@token_required
+def get_cryo_tanks(current_user):
+    """获取液氮罐列表"""
+    tanks = NitrogenTank.query.order_by(NitrogenTank.created_at.desc()).all()
+    return jsonify({
+        'code': 200,
+        'message': 'success',
+        'data': {
+            'items': [{
+                'id': t.id,
+                'name': t.name,
+                'description': t.description,
+                'created_at': t.created_at.strftime('%Y-%m-%d %H:%M:%S') if t.created_at else '',
+                'updated_at': t.updated_at.strftime('%Y-%m-%d %H:%M:%S') if t.updated_at else ''
+            } for t in tanks]
+        }
+    }), 200
+
+
+@app.route('/api/v1/cryo-tanks', methods=['POST'])
+@token_required
+def create_cryo_tank(current_user):
+    """创建液氮罐 (admin only)"""
+    if current_user.role != 'admin':
+        return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
+
+    data = request.get_json()
+    name = data.get('name', '').strip()
+    if not name:
+        return jsonify({'code': 400, 'message': '液氮罐名称不能为空', 'data': None}), 400
+
+    tank = NitrogenTank(
+        name=name,
+        description=data.get('description', '')
+    )
+    db.session.add(tank)
+    db.session.commit()
+
+    return jsonify({
+        'code': 200,
+        'message': '液氮罐创建成功',
+        'data': {
+            'id': tank.id,
+            'name': tank.name,
+            'description': tank.description
+        }
+    }), 200
+
+
+@app.route('/api/v1/cryo-tanks/<int:tank_id>', methods=['PUT'])
+@token_required
+def update_cryo_tank(current_user, tank_id):
+    """更新液氮罐 (admin only)"""
+    if current_user.role != 'admin':
+        return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
+
+    tank = NitrogenTank.query.get(tank_id)
+    if not tank:
+        return jsonify({'code': 404, 'message': '液氮罐不存在', 'data': None}), 404
+
+    data = request.get_json()
+    name = data.get('name', '').strip()
+    if name:
+        tank.name = name
+    if 'description' in data:
+        tank.description = data.get('description', '')
+    db.session.commit()
+
+    return jsonify({'code': 200, 'message': '液氮罐更新成功', 'data': None}), 200
+
+
+@app.route('/api/v1/cryo-tanks/<int:tank_id>', methods=['DELETE'])
+@token_required
+def delete_cryo_tank(current_user, tank_id):
+    """删除液氮罐及其所有盒子和数据 (admin only)"""
+    if current_user.role != 'admin':
+        return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
+
+    tank = NitrogenTank.query.get(tank_id)
+    if not tank:
+        return jsonify({'code': 404, 'message': '液氮罐不存在', 'data': None}), 404
+
+    # 级联删除：删除该罐下所有盒子的所有格子，再删除盒子
+    boxes = CryoBox.query.filter_by(tank_id=tank_id).all()
+    for box in boxes:
+        CryoCell.query.filter_by(box_id=box.id).delete()
+        db.session.delete(box)
+    db.session.delete(tank)
+    db.session.commit()
+
+    return jsonify({'code': 200, 'message': '液氮罐及其所有盒子已删除', 'data': None}), 200
+
+
+# ---------- 冻存盒 CRUD ----------
+
+@app.route('/api/v1/cryo-tanks/<int:tank_id>/boxes', methods=['GET'])
+@token_required
+def get_cryo_boxes(current_user, tank_id):
+    """获取某液氮罐下的所有冻存盒"""
+    tank = NitrogenTank.query.get(tank_id)
+    if not tank:
+        return jsonify({'code': 404, 'message': '液氮罐不存在', 'data': None}), 404
+
+    boxes = CryoBox.query.filter_by(tank_id=tank_id).order_by(CryoBox.created_at.desc()).all()
+
+    result = []
+    for box in boxes:
+        columns = json.loads(box.columns) if box.columns else []
+        total_cells = 81
+        occupied = CryoCell.query.filter_by(box_id=box.id).count()
+        result.append({
+            'id': box.id,
+            'tank_id': box.tank_id,
+            'box_name': box.box_name,
+            'box_description': box.box_description,
+            'columns': columns,
+            'occupied': occupied,
+            'total': total_cells,
+            'created_at': box.created_at.strftime('%Y-%m-%d %H:%M:%S') if box.created_at else '',
+            'updated_at': box.updated_at.strftime('%Y-%m-%d %H:%M:%S') if box.updated_at else ''
+        })
+
+    return jsonify({
+        'code': 200,
+        'message': 'success',
+        'data': {
+            'tank': {
+                'id': tank.id,
+                'name': tank.name,
+                'description': tank.description
+            },
+            'boxes': result
+        }
+    }), 200
+
+
+@app.route('/api/v1/cryo-tanks/<int:tank_id>/boxes', methods=['POST'])
+@token_required
+def create_cryo_box(current_user, tank_id):
+    """创建冻存盒 (admin only)"""
+    if current_user.role != 'admin':
+        return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
+
+    tank = NitrogenTank.query.get(tank_id)
+    if not tank:
+        return jsonify({'code': 404, 'message': '液氮罐不存在', 'data': None}), 404
+
+    data = request.get_json()
+    box_name = data.get('box_name', '').strip()
+    if not box_name:
+        return jsonify({'code': 400, 'message': '盒子名称不能为空', 'data': None}), 400
+
+    columns = data.get('columns', [])
+
+    box = CryoBox(
+        tank_id=tank_id,
+        box_name=box_name,
+        box_description=data.get('box_description', ''),
+        columns=json.dumps(columns, ensure_ascii=False)
+    )
+    db.session.add(box)
+    db.session.commit()
+
+    return jsonify({
+        'code': 200,
+        'message': '冻存盒创建成功',
+        'data': {'id': box.id, 'box_name': box.box_name}
+    }), 200
+
+
+@app.route('/api/v1/cryo-boxes/<int:box_id>', methods=['PUT'])
+@token_required
+def update_cryo_box(current_user, box_id):
+    """更新冻存盒 (admin only)"""
+    if current_user.role != 'admin':
+        return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
+
+    box = CryoBox.query.get(box_id)
+    if not box:
+        return jsonify({'code': 404, 'message': '冻存盒不存在', 'data': None}), 404
+
+    data = request.get_json()
+    if 'box_name' in data:
+        box.box_name = data['box_name'].strip()
+    if 'box_description' in data:
+        box.box_description = data.get('box_description', '')
+    if 'columns' in data:
+        box.columns = json.dumps(data['columns'], ensure_ascii=False)
+    db.session.commit()
+
+    return jsonify({'code': 200, 'message': '冻存盒更新成功', 'data': None}), 200
+
+
+@app.route('/api/v1/cryo-boxes/<int:box_id>', methods=['DELETE'])
+@token_required
+def delete_cryo_box(current_user, box_id):
+    """删除冻存盒及其所有格子数据 (admin only)"""
+    if current_user.role != 'admin':
+        return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
+
+    box = CryoBox.query.get(box_id)
+    if not box:
+        return jsonify({'code': 404, 'message': '冻存盒不存在', 'data': None}), 404
+
+    CryoCell.query.filter_by(box_id=box_id).delete()
+    db.session.delete(box)
+    db.session.commit()
+
+    return jsonify({'code': 200, 'message': '冻存盒已删除', 'data': None}), 200
+
+
+# ---------- 网格数据 API ----------
+
+ROW_LABELS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I']
+
+@app.route('/api/v1/cryo-boxes/<int:box_id>/grid', methods=['GET'])
+@token_required
+def get_cryo_grid(current_user, box_id):
+    """获取盒子的 9x9 网格数据"""
+    box = CryoBox.query.get(box_id)
+    if not box:
+        return jsonify({'code': 404, 'message': '冻存盒不存在', 'data': None}), 404
+
+    tank = NitrogenTank.query.get(box.tank_id)
+    columns = json.loads(box.columns) if box.columns else []
+
+    # 获取所有已占用的格子
+    cells = CryoCell.query.filter_by(box_id=box_id).all()
+    cell_map = {}
+    for cell in cells:
+        cell_info = {
+            'id': cell.id,
+            'row': cell.row,
+            'col': cell.col,
+            'data': json.loads(cell.data) if cell.data else {},
+            'linked_table_id': cell.linked_table_id,
+            'linked_data_id': cell.linked_data_id,
+            'created_at': cell.created_at.strftime('%Y-%m-%d %H:%M:%S') if cell.created_at else '',
+            'updated_at': cell.updated_at.strftime('%Y-%m-%d %H:%M:%S') if cell.updated_at else ''
+        }
+        # 如果有反向关联，附加表格名称
+        if cell.linked_table_id:
+            linked_table = TableStructure.query.get(cell.linked_table_id)
+            if linked_table:
+                cell_info['linked_table_name'] = linked_table.table_name
+        cell_map[f"{cell.row},{cell.col}"] = cell_info
+
+    # 构建完整的 9x9 网格 (row 1-9, col 1-9)
+    grid = []
+    for r in range(1, 10):
+        row_data = []
+        for c in range(1, 10):
+            key = f"{r},{c}"
+            if key in cell_map:
+                row_data.append(cell_map[key])
+            else:
+                row_data.append(None)  # 空格子
+        grid.append(row_data)
+
+    occupied = len(cells)
+    total = 81
+
+    return jsonify({
+        'code': 200,
+        'message': 'success',
+        'data': {
+            'box': {
+                'id': box.id,
+                'box_name': box.box_name,
+                'box_description': box.box_description,
+                'tank_id': box.tank_id,
+                'tank_name': tank.name if tank else ''
+            },
+            'columns': columns,
+            'grid': grid,
+            'row_labels': ROW_LABELS,
+            'occupied': occupied,
+            'total': total
+        }
+    }), 200
+
+
+@app.route('/api/v1/cryo-boxes/<int:box_id>/available-positions', methods=['GET'])
+@token_required
+def get_available_positions(current_user, box_id):
+    """获取盒子的所有空位置"""
+    box = CryoBox.query.get(box_id)
+    if not box:
+        return jsonify({'code': 404, 'message': '冻存盒不存在', 'data': None}), 404
+
+    # 获取已占用的位置
+    occupied = CryoCell.query.filter_by(box_id=box_id).all()
+    occupied_set = {(c.row, c.col) for c in occupied}
+
+    # 生成所有空位置列表
+    available = []
+    for r in range(1, 10):
+        for c in range(1, 10):
+            if (r, c) not in occupied_set:
+                available.append({
+                    'row': r,
+                    'col': c,
+                    'label': f'{ROW_LABELS[r-1]}{c}'
+                })
+
+    return jsonify({
+        'code': 200,
+        'message': 'success',
+        'data': {
+            'available': available,
+            'total': len(available)
+        }
+    }), 200
+
+
+@app.route('/api/v1/cryo-boxes/<int:box_id>/cells/<int:row>/<int:col>', methods=['GET'])
+@token_required
+def get_cryo_cell(current_user, box_id, row, col):
+    """获取单个格子数据"""
+    if row < 1 or row > 9 or col < 1 or col > 9:
+        return jsonify({'code': 400, 'message': '行列必须在1-9范围内', 'data': None}), 400
+
+    cell = CryoCell.query.filter_by(box_id=box_id, row=row, col=col).first()
+    if not cell:
+        return jsonify({'code': 200, 'message': '空格子', 'data': None}), 200
+
+    return jsonify({
+        'code': 200,
+        'message': 'success',
+        'data': {
+            'id': cell.id,
+            'row': cell.row,
+            'col': cell.col,
+            'data': json.loads(cell.data) if cell.data else {},
+            'created_at': cell.created_at.strftime('%Y-%m-%d %H:%M:%S') if cell.created_at else '',
+            'updated_at': cell.updated_at.strftime('%Y-%m-%d %H:%M:%S') if cell.updated_at else ''
+        }
+    }), 200
+
+
+@app.route('/api/v1/cryo-boxes/<int:box_id>/cells/<int:row>/<int:col>', methods=['PUT'])
+@token_required
+def upsert_cryo_cell(current_user, box_id, row, col):
+    """创建或更新格子数据"""
+    if current_user.role not in ['admin', 'leader', 'member']:
+        return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
+
+    if row < 1 or row > 9 or col < 1 or col > 9:
+        return jsonify({'code': 400, 'message': '行列必须在1-9范围内', 'data': None}), 400
+
+    box = CryoBox.query.get(box_id)
+    if not box:
+        return jsonify({'code': 404, 'message': '冻存盒不存在', 'data': None}), 404
+
+    data = request.get_json()
+    cell_data = data.get('data', {})
+
+    cell = CryoCell.query.filter_by(box_id=box_id, row=row, col=col).first()
+    if cell:
+        cell.data = json.dumps(cell_data, ensure_ascii=False)
+        msg = '格子数据更新成功'
+    else:
+        cell = CryoCell(
+            box_id=box_id,
+            row=row,
+            col=col,
+            data=json.dumps(cell_data, ensure_ascii=False)
+        )
+        db.session.add(cell)
+        msg = '格子数据添加成功'
+
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        err_msg = str(e)
+        if 'UNIQUE constraint' in err_msg or 'duplicate' in err_msg.lower():
+            return jsonify({'code': 400, 'message': '该位置已被占用', 'data': None}), 400
+        return jsonify({'code': 500, 'message': f'保存格子数据失败: {err_msg}', 'data': None}), 500
+
+    return jsonify({
+        'code': 200,
+        'message': msg,
+        'data': {
+            'id': cell.id,
+            'row': row,
+            'col': col,
+            'label': f"{ROW_LABELS[row-1]}{col}"
+        }
+    }), 200
+
+
+@app.route('/api/v1/cryo-boxes/<int:box_id>/cells/<int:row>/<int:col>', methods=['DELETE'])
+@token_required
+def delete_cryo_cell(current_user, box_id, row, col):
+    """清空某个格子 (admin/leader only)"""
+    if current_user.role not in ['admin', 'leader']:
+        return jsonify({'code': 403, 'message': '权限不足，只有管理员和组长可以清空格子', 'data': None}), 403
+
+    if row < 1 or row > 9 or col < 1 or col > 9:
+        return jsonify({'code': 400, 'message': '行列必须在1-9范围内', 'data': None}), 400
+
+    cell = CryoCell.query.filter_by(box_id=box_id, row=row, col=col).first()
+    if not cell:
+        return jsonify({'code': 404, 'message': '该格子已经是空的', 'data': None}), 404
+
+    # 如果该格子关联了表格数据，需要同步更新表格中的存储列
+    if cell.linked_table_id and cell.linked_data_id:
+        linked_row = InventoryData.query.get(cell.linked_data_id)
+        if linked_row:
+            table = TableStructure.query.get(cell.linked_table_id)
+            if table:
+                row_data = json.loads(linked_row.data)
+                columns = json.loads(table.columns)
+
+                for col_def in columns:
+                    if col_def.get('is_storage'):
+                        col_name = col_def['column_name']
+                        storage_val = row_data.get(col_name)
+                        if isinstance(storage_val, dict) and storage_val.get('_storage'):
+                            positions = storage_val.get('_positions', [])
+                            new_positions = [
+                                p for p in positions
+                                if not (p.get('box_id') == box_id and p.get('row') == row and p.get('col') == col)
+                            ]
+                            if len(new_positions) < len(positions):
+                                if new_positions:
+                                    text_parts = [f"{p.get('tank_name','')} > {p.get('box_name','')} > {p.get('label','')}" for p in new_positions]
+                                    row_data[col_name] = {
+                                        '_storage': True,
+                                        '_positions': new_positions,
+                                        '_text': ', '.join(text_parts)
+                                    }
+                                else:
+                                    row_data[col_name] = ''
+                                linked_row.data = json.dumps(row_data, ensure_ascii=False)
+                        break
+
+    # 清空格子 + 表格数据更新 → 一次性提交
+    db.session.delete(cell)
+    db.session.commit()
+
+    return jsonify({'code': 200, 'message': '格子已清空', 'data': None}), 200
+
 
 # 启动定时备份调度器
 start_backup_scheduler()

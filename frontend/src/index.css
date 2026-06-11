@@ -1,532 +1,489 @@
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+/* ============================================================
+   SARFM Lab Inventory System - Visual Theme
+   University Laboratory Professional Style
+   Optimized for 1080p ~ 2K displays
+   ============================================================ */
+
+:root {
+  /* Primary palette */
+  --color-navy: #0f1a2e;
+  --color-navy-light: #1a2d47;
+  --color-teal: #0d9488;
+  --color-teal-light: #14b8a6;
+  --color-teal-subtle: #e6f7f5;
+  --color-amber: #d97706;
+  --color-rose: #e11d48;
+
+  /* Surfaces */
+  --color-bg: #f3f4f6;
+  --color-bg-card: #ffffff;
+  --color-bg-sidebar: #0f1a2e;
+  --color-bg-hover: #f8fafc;
+  --color-border: #e5e7eb;
+
+  /* Text */
+  --color-text: #1f2937;
+  --color-text-secondary: #6b7280;
+  --color-text-muted: #9ca3af;
+  --color-text-inverse: #ffffff;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.05);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.06);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,.08);
+
+  /* Spacing scale */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+
+  /* Typography */
+  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
 }
+
+/* ============================================================
+   BASE
+   ============================================================ */
+* { margin: 0; padding: 0; box-sizing: border-box; }
 
 html, body {
   height: 100%;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+  font-family: var(--font-family);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: #f0f2f5;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 14px;
+  line-height: 1.5;
 }
 
-/* 移除全局表格交替行颜色样式，改为在组件内部管理 */
-/* 避免与组件内部的选中行样式冲突 */
+code, pre, .mono { font-family: var(--font-mono); }
 
-code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
-}
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
 
-/* 登录页面样式 */
+/* ============================================================
+   LOGIN PAGE
+   ============================================================ */
 .login-container {
   display: flex;
   justify-content: center;
   align-items: center;
   min-height: 100vh;
-  background-color: #f0f2f5;
+  background: linear-gradient(135deg, var(--color-navy) 0%, #1a365d 50%, #0f2b3d 100%);
+  position: relative;
+  overflow: hidden;
+}
+.login-container::before {
+  content: '';
+  position: absolute;
+  top: -50%; left: -50%;
+  width: 200%; height: 200%;
+  background: radial-gradient(ellipse at 30% 20%, rgba(13,148,136,.08) 0%, transparent 50%),
+              radial-gradient(ellipse at 70% 80%, rgba(13,148,136,.04) 0%, transparent 50%);
+  pointer-events: none;
 }
 
 .login-card {
   width: 100%;
-  max-width: 400px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  max-width: 420px;
+  background: rgba(255,255,255,.97);
+  backdrop-filter: blur(20px);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 20px 60px rgba(0,0,0,.3), 0 0 0 1px rgba(255,255,255,.05);
+  padding: 0;
+  overflow: hidden;
 }
-
-/* 确保登录表单文字显示正常 */
+.login-card .ant-card-head {
+  background: transparent;
+  border-bottom: 1px solid var(--color-border);
+  padding: 28px 32px 20px;
+}
 .login-card .ant-card-head-title {
-  color: #000 !important;
-  font-size: 18px !important;
+  color: var(--color-navy) !important;
+  font-size: 22px !important;
+  font-weight: 700 !important;
+  letter-spacing: -.3px;
+  text-align: center;
 }
-
+.login-card .ant-card-body { padding: 32px 32px 28px; }
 .login-card .ant-form-item-label > label {
-  color: #000 !important;
-  font-size: 14px !important;
+  color: var(--color-text) !important;
+  font-size: 13px !important;
+  font-weight: 500;
 }
-
 .login-card .ant-input {
-  color: #000 !important;
+  color: var(--color-text) !important;
   font-size: 14px !important;
+  border-radius: var(--radius-sm);
+  border-color: var(--color-border);
+  padding: 10px 12px;
+  transition: all .2s;
+}
+.login-card .ant-input:hover { border-color: var(--color-teal); }
+.login-card .ant-input:focus,
+.login-card .ant-input-focused { border-color: var(--color-teal); box-shadow: 0 0 0 2px rgba(13,148,136,.15); }
+.login-card .ant-btn-primary {
+  background: var(--color-teal);
+  border-color: var(--color-teal);
+  font-size: 15px !important;
+  font-weight: 600;
+  height: 44px;
+  border-radius: var(--radius-sm);
+  letter-spacing: .2px;
+  transition: all .2s;
+}
+.login-card .ant-btn-primary:hover { background: #0f766e; border-color: #0f766e; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(13,148,136,.3); }
+.login-card .ant-checkbox-wrapper { color: var(--color-text-secondary); font-size: 13px; }
+
+/* ============================================================
+   HEADER
+   ============================================================ */
+.ant-layout-header {
+  background: var(--color-navy) !important;
+  padding: 0 24px !important;
+  height: 56px !important;
+  line-height: 56px !important;
+  box-shadow: 0 2px 8px rgba(0,0,0,.15);
+  z-index: 100;
+}
+.ant-layout-header .ant-typography {
+  font-weight: 600 !important;
+  font-size: 17px !important;
+  letter-spacing: -.2px;
+  color: var(--color-text-inverse) !important;
+}
+.ant-layout-header .ant-btn-text { color: rgba(255,255,255,.85) !important; }
+.ant-layout-header .ant-btn-primary {
+  background: var(--color-teal);
+  border-color: var(--color-teal);
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+  height: 34px;
+  padding: 0 16px;
 }
 
-.login-card .ant-btn {
-  color: #fff !important;
-  font-size: 14px !important;
-}
-
-/* 主页面样式 */
-.logo {
-  height: 32px;
-  margin: 16px;
-  background: rgba(255, 255, 255, 0.3);
-  border-radius: 4px;
-}
-
-/* 桌面端侧边栏样式 */
-/* 重要：不要随意修改这些关键样式，否则会导致侧边栏高度异常 */
+/* ============================================================
+   SIDEBAR
+   ============================================================ */
 .desktop-sider {
-  position: relative;
-  min-height: 100% !important; /* 确保侧边栏至少占满整个父容器高度 */
+  background: var(--color-bg-sidebar) !important;
+  min-height: 100% !important;
   display: flex !important;
   flex-direction: column !important;
-  min-height: 0 !important;
 }
-
-/* 侧边栏折叠按钮样式 */
-.sidebar-collapse-trigger {
-  z-index: 10;
-  position: relative !important;
-  bottom: auto !important;
-  left: auto !important;
-  right: auto !important;
-  margin-top: auto !important;
-}
-
-/* 确保侧边栏菜单能够占据剩余空间 */
-.desktop-sider .ant-menu {
-  flex: 1 !important;
-  overflow-x: hidden !important;
-  margin: 0 !important;
-  padding: 0 !important;
-}
-
-/* 当侧边栏菜单容器有大量内容时，允许菜单扩展 */
-.desktop-sider > div:nth-child(2) {
-  overflow-y: auto !important;
-  max-height: calc(100% - 80px); /* 减去logo和折叠按钮的高度 */
-}
-
-/* 确保ant-layout-sider-children占满整个侧边栏高度 */
 .desktop-sider .ant-layout-sider-children {
   height: 100% !important;
   display: flex !important;
   flex-direction: column !important;
+}
+.desktop-sider .ant-menu {
+  background: transparent !important;
+  border-right: none !important;
   flex: 1 !important;
-  overflow: hidden !important;
+  padding: 8px 0 !important;
+}
+.desktop-sider .ant-menu-item,
+.desktop-sider .ant-menu-submenu-title {
+  margin: 2px 8px !important;
+  border-radius: var(--radius-sm) !important;
+  height: 42px !important;
+  line-height: 42px !important;
+  font-size: 13.5px !important;
+  color: rgba(255,255,255,.75) !important;
+  transition: all .15s !important;
+}
+.desktop-sider .ant-menu-item:hover,
+.desktop-sider .ant-menu-submenu-title:hover {
+  background: rgba(255,255,255,.08) !important;
+  color: #fff !important;
+}
+.desktop-sider .ant-menu-item-selected {
+  background: rgba(13,148,136,.2) !important;
+  color: var(--color-teal-light) !important;
+  font-weight: 500;
+}
+.desktop-sider .ant-menu-submenu-arrow { color: rgba(255,255,255,.5) !important; }
+.desktop-sider .ant-menu-submenu-open > .ant-menu-submenu-title { color: #fff !important; }
+.desktop-sider .ant-menu-sub .ant-menu-item {
+  padding-left: 48px !important;
+  font-size: 13px !important;
+  height: 38px !important;
+  line-height: 38px !important;
 }
 
-/* 表格定义区域样式 */
+.logo {
+  height: 36px;
+  margin: 14px 16px;
+  background: linear-gradient(135deg, var(--color-teal) 0%, var(--color-teal-light) 100%);
+  border-radius: var(--radius-sm);
+  opacity: .9;
+}
+
+.sidebar-collapse-trigger {
+  height: 44px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: rgba(255,255,255,.04);
+  cursor: pointer;
+  border-top: 1px solid rgba(255,255,255,.08);
+  transition: all .2s;
+}
+.sidebar-collapse-trigger:hover { background: rgba(255,255,255,.08); }
+
+/* ============================================================
+   CONTENT AREA
+   ============================================================ */
+.ant-layout-content {
+  background: var(--color-bg) !important;
+  padding: 20px 24px !important;
+  min-height: 280px;
+}
+
+/* ============================================================
+   CARDS
+   ============================================================ */
+.ant-card {
+  border-radius: var(--radius-md) !important;
+  border: 1px solid var(--color-border) !important;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow .2s;
+}
+.ant-card:hover { box-shadow: var(--shadow-md); }
+.ant-card-head {
+  background: #fafbfc !important;
+  border-bottom: 1px solid var(--color-border) !important;
+  padding: 16px 20px !important;
+  border-radius: var(--radius-md) var(--radius-md) 0 0 !important;
+}
+.ant-card-head-title {
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  color: var(--color-text) !important;
+}
+.ant-card-body { padding: 20px !important; }
+
+/* ============================================================
+   TABLES
+   ============================================================ */
+.ant-table {
+  border-radius: var(--radius-sm);
+  font-size: 13.5px;
+}
+.ant-table-thead > tr > th {
+  background: #f8fafc !important;
+  color: var(--color-text-secondary) !important;
+  font-weight: 600 !important;
+  font-size: 12.5px !important;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+  padding: 12px 14px !important;
+  border-bottom: 2px solid var(--color-border) !important;
+}
+.ant-table-tbody > tr > td {
+  padding: 10px 14px !important;
+  border-bottom: 1px solid #f3f4f6 !important;
+}
+.ant-table-tbody > tr:hover > td { background: #f8fafc !important; }
+.ant-table-tbody > tr.ant-table-row-selected > td { background: var(--color-teal-subtle) !important; }
+
+/* ============================================================
+   BUTTONS
+   ============================================================ */
+.ant-btn {
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+  font-size: 13.5px;
+  height: 36px;
+  padding: 0 16px;
+  transition: all .15s;
+}
+.ant-btn-primary {
+  background: var(--color-teal);
+  border-color: var(--color-teal);
+  box-shadow: 0 1px 3px rgba(13,148,136,.2);
+}
+.ant-btn-primary:hover {
+  background: #0f766e !important;
+  border-color: #0f766e !important;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(13,148,136,.3) !important;
+}
+.ant-btn-dangerous {
+  color: var(--color-rose);
+  border-color: var(--color-rose);
+}
+.ant-btn-link { color: var(--color-teal); }
+.ant-btn-link:hover { color: #0f766e; }
+
+/* ============================================================
+   INPUTS & FORMS
+   ============================================================ */
+.ant-input, .ant-input-number, .ant-select-selector, .ant-picker {
+  border-radius: var(--radius-sm) !important;
+  border-color: var(--color-border) !important;
+  font-size: 13.5px;
+  transition: all .15s;
+}
+.ant-input:hover, .ant-select:hover .ant-select-selector { border-color: var(--color-teal) !important; }
+.ant-input:focus, .ant-input-focused,
+.ant-select-focused .ant-select-selector {
+  border-color: var(--color-teal) !important;
+  box-shadow: 0 0 0 2px rgba(13,148,136,.12) !important;
+}
+.ant-form-item-label > label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+/* ============================================================
+   MODAL
+   ============================================================ */
+.ant-modal-content {
+  border-radius: var(--radius-md) !important;
+  overflow: hidden;
+}
+.ant-modal-header {
+  padding: 20px 24px 16px !important;
+  border-bottom: 1px solid var(--color-border) !important;
+}
+.ant-modal-title { font-size: 16px !important; font-weight: 600 !important; }
+.ant-modal-body { padding: 24px !important; }
+.ant-modal-footer { padding: 16px 24px !important; border-top: 1px solid var(--color-border) !important; }
+
+/* ============================================================
+   TAGS & BADGES
+   ============================================================ */
+.ant-tag {
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  padding: 2px 10px;
+  font-weight: 500;
+}
+
+/* ============================================================
+   BREADCRUMB
+   ============================================================ */
+.ant-breadcrumb { font-size: 13px; }
+.ant-breadcrumb a { color: var(--color-text-secondary); }
+.ant-breadcrumb a:hover { color: var(--color-teal); }
+.ant-breadcrumb-separator { color: var(--color-text-muted); }
+
+/* ============================================================
+   PAGINATION
+   ============================================================ */
+.ant-pagination-item-active {
+  border-color: var(--color-teal) !important;
+  background: var(--color-teal) !important;
+}
+.ant-pagination-item-active a { color: #fff !important; }
+
+/* ============================================================
+   RESPONSIVE: TABLET (768px - 1024px)
+   ============================================================ */
+@media (min-width: 769px) and (max-width: 1024px) {
+  .ant-layout-content { padding: 16px !important; }
+  .ant-card-body { padding: 16px !important; }
+  .ant-card-head { padding: 14px 16px !important; }
+  .ant-table-thead > tr > th { padding: 10px 10px !important; font-size: 12px !important; }
+  .ant-table-tbody > tr > td { padding: 8px 10px !important; font-size: 13px; }
+  .desktop-sider { min-width: 64px !important; max-width: 64px !important; flex: 0 0 64px !important; }
+}
+
+/* ============================================================
+   RESPONSIVE: MOBILE (< 768px)
+   ============================================================ */
+@media (max-width: 768px) {
+  .desktop-sider { display: none !important; }
+  .mobile-sider {
+    position: fixed; z-index: 1000; top: 56px; left: 0;
+    height: calc(100vh - 56px); background: var(--color-bg-sidebar) !important;
+  }
+  .ant-layout-content { padding: 12px !important; }
+  .ant-card-body { padding: 12px !important; }
+  .ant-card-head { padding: 12px 14px !important; }
+  .ant-card-head-title { font-size: 14px !important; }
+  .ant-btn { height: 32px; padding: 0 12px; font-size: 12px; }
+  .ant-input, .ant-select-selector { height: 34px !important; font-size: 13px; }
+  .ant-table-thead > tr > th { padding: 8px 6px !important; font-size: 11px !important; }
+  .ant-table-tbody > tr > td { padding: 6px 6px !important; font-size: 12px; }
+  .ant-modal { top: 8px; max-width: 95vw !important; }
+  .ant-modal-body { padding: 14px !important; }
+  .login-card { width: 90% !important; margin: 12px; }
+  .login-card .ant-card-head { padding: 20px 20px 14px; }
+  .login-card .ant-card-body { padding: 20px; }
+}
+
+/* ============================================================
+   RESPONSIVE: SMALL MOBILE (< 576px)
+   ============================================================ */
+@media (max-width: 576px) {
+  .ant-modal { width: 96% !important; margin: 4px; }
+  .ant-modal-body { padding: 10px !important; }
+  .ant-form-item { margin-bottom: 10px !important; }
+}
+
+/* ============================================================
+   PROJECT: TABLE DEFINITION
+   ============================================================ */
 .table-definition {
-  background-color: #f5f5f5;
+  background: var(--color-bg-card);
   padding: 20px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
   margin-bottom: 20px;
 }
+.column-item { display: flex; gap: 10px; margin-bottom: 10px; align-items: center; }
 
-.column-item {
-  display: flex;
-  gap: 10px;
-  margin-bottom: 10px;
-  align-items: center;
-}
+/* ============================================================
+   PROJECT: DATA TABLE
+   ============================================================ */
+.data-table-container { margin-top: 20px; }
+.operation-buttons { margin-bottom: 12px; display: flex; gap: 10px; flex-wrap: wrap; }
 
-/* 数据表格样式 */
-.data-table-container {
-  margin-top: 20px;
-}
+/* ============================================================
+   PROJECT: CRYO GRID (frosted cells)
+   ============================================================ */
+/* The grid cell styles are handled inline in CryoGrid.jsx.
+   These are supplementary container styles. */
 
-.operation-buttons {
-  margin-bottom: 10px;
-  display: flex;
-  gap: 10px;
-}
+/* ============================================================
+   PROJECT: MENU BUTTON
+   ============================================================ */
+.menu-btn { display: block; }
 
-/* 默认显示菜单按钮 */
-.menu-btn {
-  display: block;
-}
+/* ============================================================
+   GENERAL UTILITY
+   ============================================================ */
+.app-layout { transition: all .25s ease; }
+.ant-layout { background: var(--color-bg) !important; }
 
-/* 移动端侧边栏全局样式 */
-.mobile-sider {
-  display: none;
-}
+/* Ensure proper touch targets */
+.ant-btn, .ant-menu-item, .ant-menu-submenu-title,
+.ant-select, .ant-input { touch-action: manipulation; cursor: pointer; }
 
-/* 响应式设计 */
-@media (max-width: 768px) {
-  .column-item {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .operation-buttons {
-    flex-wrap: wrap;
-  }
-  
-  /* 隐藏桌面端侧边栏 */
-  .desktop-sider {
-    display: none !important;
-  }
-  
-  /* 移动端侧边栏样式 */
-  .mobile-sider {
-    position: fixed;
-    z-index: 1000;
-    top: 64px;
-    left: 0;
-    height: calc(100vh - 64px);
-  }
-  
-  /* 菜单按钮样式 */
-  .menu-btn {
-    display: block !important;
-  }
-  
-  /* 登录页适配 */
-  .login-card {
-    width: 90% !important;
-    margin: 16px;
-  }
-  
-  /* 表格容器适配 */
-  .data-table-container {
-    overflow-x: auto;
-  }
-  
-  /* 主内容区域适配 */
-  .ant-layout-content {
-    padding: 16px !important;
-    margin: 0 !important;
-    min-width: auto !important;
-  }
-  
-  /* 操作按钮区域适配 */
-  .operation-buttons {
-    flex-direction: column;
-    gap: 8px;
-  }
-  
-  /* 按钮大小适配 */
-  .ant-btn {
-    min-width: 72px;
-    padding: 4px 8px;
-    font-size: 12px;
-    height: 32px;
-  }
-  
-  /* 输入框适配 */
-  .ant-input, .ant-select-selector {
-    height: 32px !important;
-    font-size: 12px;
-  }
-  
-  /* 表格操作列适配 */
-  .action-button {
-    margin: 2px 0 !important;
-    width: 100%;
-    max-width: 80px;
-  }
-  
-  /* 卡片内边距适配 */
-  .ant-card-body {
-    padding: 12px !important;
-  }
-  
-  /* 表单间距适配 */
-  .ant-form-item {
-    margin-bottom: 12px !important;
-  }
-  
-  /* 表格行高适配 */
-  .ant-table-tbody > tr > td {
-    padding: 8px 4px !important;
-    font-size: 12px;
-  }
-  
-  /* 表格标题适配 */
-  .ant-table-thead > tr > th {
-    padding: 10px 4px !important;
-    font-size: 12px;
-    white-space: nowrap;
-  }
-  
-  /* 模态框适配 */
-  .ant-modal {
-    top: 10px;
-  }
-  
-  .ant-modal-body {
-    padding: 16px !important;
-  }
-  
-  .ant-modal-footer {
-    padding: 12px 16px !important;
-  }
-  
-  /* 统计图表适配 */
-  .ant-chart {
-    width: 100% !important;
-    height: 200px !important;
-  }
-  
-  /* 导航菜单适配 */
-  .ant-menu {
-    font-size: 14px;
-  }
-  
-  .ant-menu-item {
-    padding: 12px 16px !important;
-  }
-  
-  /* 标题适配 */
-  h1, h2, h3, h4, h5, h6 {
-    margin-bottom: 12px !important;
-  }
-  
-  h1 {
-    font-size: 20px !important;
-  }
-  
-  h2 {
-    font-size: 18px !important;
-  }
-  
-  h3 {
-    font-size: 16px !important;
-  }
-  
-  /* 分页控件适配 */
-  .ant-pagination {
-    margin: 16px 0 !important;
-  }
-  
-  .ant-pagination-item {
-    min-width: 32px;
-    height: 32px;
-    line-height: 32px;
-    font-size: 12px;
-  }
-  
-  /* 上传组件适配 */
-  .ant-upload {
-    width: 100% !important;
-  }
-  
-  /* 卡片标题适配 */
-  .ant-card-head-title {
-    font-size: 14px !important;
-    padding: 12px 0 !important;
-  }
-  
-  /* 卡片样式优化 */
-  .ant-card {
-    border-radius: 8px;
-  }
-  
-  /* 内容区域背景色 */
-  .ant-layout {
-    background-color: #fff !important;
-  }
-  
-  /* 确保Content区域能够完整显示 */
-  .ant-layout-content > * {
-    width: 100% !important;
-    min-width: 0 !important;
-  }
-  
-  /* 表格容器确保可以横向滚动 */
-  .ant-table-container {
-    overflow-x: auto !important;
-    width: 100% !important;
-  }
-  
-  /* 确保表格可以自适应 */
-  .ant-table {
-    min-width: 0 !important;
-    width: 100% !important;
-  }
-}
-
-/* 平板端适配 */
-@media (min-width: 769px) and (max-width: 1024px) {
-  /* 菜单按钮样式 */
-  .menu-btn {
-    display: block !important;
-  }
-  
-  /* 移除固定宽度设置，让Sider组件能够根据断点自动调整宽度 */
-  
-  /* 调整内容区域 */
-  .ant-layout-content {
-    padding: 12px !important;
-    margin: 0 !important;
-    min-width: 0 !important;
-    flex: 1 !important;
-  }
-  
-  /* 确保主布局容器能够正确计算宽度 */
-  .ant-layout {
-    width: 100% !important;
-    min-width: 0 !important;
-  }
-  
-  /* 确保表格容器能够横向滚动 */
-  .ant-table-container {
-    overflow-x: auto !important;
-    width: 100% !important;
-  }
-  
-  /* 优化表格列宽 */
-  .ant-table-thead > tr > th {
-    min-width: 80px !important;
-    padding: 10px 8px !important;
-    font-size: 13px;
-  }
-  
-  /* 优化表格内容 */
-  .ant-table-tbody > tr > td {
-    padding: 8px 8px !important;
-    font-size: 13px;
-    white-space: nowrap;
-  }
-  
-  /* 确保卡片容器能够自适应 */
-  .ant-card {
-    min-width: 0 !important;
-    width: 100% !important;
-  }
-  
-  /* 确保内容区域能够完整显示 */
-  .ant-layout-content > * {
-    width: 100% !important;
-    min-width: 0 !important;
-  }
-  
-  /* 优化操作按钮区域 */
-  .operation-buttons {
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-  
-  /* 优化表单布局 */
-  .ant-form-horizontal .ant-form-item {
-    margin-bottom: 12px !important;
-  }
-  
-  /* 优化输入框宽度 */
-  .ant-input, .ant-select, .ant-input-number {
-    max-width: 100% !important;
-  }
-}
-
-/* 桌面端适配 */
-@media (min-width: 1025px) {
-  /* 菜单按钮样式 */
-  .menu-btn {
-    display: block !important;
-  }
-}
-
-/* 通用响应式样式 */
-.app-layout {
-  transition: all 0.3s ease;
-}
-
-/* 确保表格在小屏幕上可以横向滚动 */
-.ant-table {
-  overflow: auto;
-}
-
-/* 优化移动端触摸体验 */
-.ant-btn, .ant-menu-item, .ant-menu-submenu-title {
-  touch-action: manipulation;
-  cursor: pointer;
-}
-
-/* 确保所有可点击元素都有足够的触摸区域 */
-.ant-btn, .ant-menu-item, .ant-menu-submenu-title, .ant-select, .ant-input {
-  min-height: 40px;
-}
-
-/* 优化移动端表单布局 */
-@media (max-width: 768px) {
-  .ant-form-horizontal .ant-form-item-label {
-    text-align: left;
-    margin-bottom: 8px;
-  }
-  
-  .ant-form-horizontal .ant-form-item {
-    margin-bottom: 16px;
-  }
-}
-
-/* 优化移动端选择器 */
-@media (max-width: 768px) {
-  .ant-select-dropdown {
-    max-height: 300px;
-  }
-}
-
-/* 优化移动端表格展开行 */
-@media (max-width: 768px) {
-  .expanded-hidden-columns > div {
-    grid-template-columns: 1fr !important;
-  }
-}
-
-/* 优化移动端模态框 */
-@media (max-width: 576px) {
-  .ant-modal {
-    width: 95% !important;
-    margin: 8px;
-  }
-}
-
-/* 确保文本在小屏幕上可以换行 */
+/* Word break safety */
 .ant-typography, .ant-table-cell, .ant-menu-title-content {
-  word-break: break-word;
-  overflow-wrap: break-word;
+  word-break: break-word; overflow-wrap: break-word;
 }
 
-/* 优化移动端图标大小 */
-@media (max-width: 768px) {
-  .anticon {
-    font-size: 16px;
-  }
-  
-  .ant-menu-item .anticon,
-  .ant-menu-submenu-title .anticon {
-    font-size: 14px;
-  }
+/* Animations */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
-
-/* 确保空状态在小屏幕上显示正常 */
-@media (max-width: 768px) {
-  .ant-empty {
-    padding: 24px 0;
-  }
-  
-  .ant-empty-image {
-    width: 80px;
-    height: 80px;
-  }
-}
-
-/* 优化移动端分页 */
-@media (max-width: 768px) {
-  .ant-pagination-options {
-    display: none;
-  }
-}
-
-/* 优化移动端加载状态 */
-@media (max-width: 768px) {
-  .ant-spin {
-    font-size: 12px;
-  }
-  
-  .ant-spin-text {
-    font-size: 12px;
-  }
-}
-
-/* 确保表单标签在小屏幕上显示正常 */
-@media (max-width: 768px) {
-  .ant-form-item-label > label {
-    font-size: 12px;
-  }
-}
-
+.ant-card { animation: fadeInUp .4s ease-out; }

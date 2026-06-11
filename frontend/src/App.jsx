@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { Layout, Menu, Button, Form, Input, Card, Typography, message, Checkbox, Select, Modal, Table, Dropdown } from 'antd'
-import { UserOutlined, LockOutlined, DatabaseOutlined, BarChartOutlined, MenuOutlined, BugOutlined, CheckCircleOutlined } from '@ant-design/icons'
+import { UserOutlined, LockOutlined, DatabaseOutlined, BarChartOutlined, MenuOutlined, BugOutlined, CheckCircleOutlined, ExperimentOutlined } from '@ant-design/icons'
 import { BrowserRouter as Router, Routes, Route, Navigate, Link, useNavigate, useLocation } from 'react-router-dom'
 import axios from 'axios'
 import TableDefinition from './pages/TableDefinition'
@@ -11,6 +11,9 @@ import UserManagement from './pages/UserManagement'
 import ResetPassword from './pages/ResetPassword'
 import ChangePassword from './pages/ChangePassword'
 import DatabaseBackup from './pages/DatabaseBackup'
+import CryoTankManagement from './pages/CryoTankManagement'
+import CryoBoxManagement from './pages/CryoBoxManagement'
+import CryoGrid from './pages/CryoGrid'
 import { I18nProvider, useI18n } from './i18n/I18nContext'
 
 // 配置axios拦截器
@@ -551,6 +554,11 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn, t, lang, changeLang }) => {
                   icon: <BarChartOutlined />,
                   label: <Link to="/reports">{t('menu.reports')}</Link>
                 },
+                {
+                  key: '7',
+                  icon: <ExperimentOutlined />,
+                  label: <Link to="/cryo-management">{t('cryo.title')}</Link>
+                },
                 ...(() => {
                   const user = JSON.parse(localStorage.getItem('user'));
                   if (user && user.role === 'admin') {
@@ -767,6 +775,11 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn, t, lang, changeLang }) => {
                     icon: <BarChartOutlined />,
                     label: <Link to="/reports" onClick={() => setMobileMenuVisible(false)}>{t('menu.reports')}</Link>
                   },
+                  {
+                    key: 'm7',
+                    icon: <ExperimentOutlined />,
+                    label: <Link to="/cryo-management" onClick={() => setMobileMenuVisible(false)}>{t('cryo.title')}</Link>
+                  },
                   ...(() => {
                     const user = JSON.parse(localStorage.getItem('user'));
                     if (user && user.role === 'admin') {
@@ -930,6 +943,9 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn, t, lang, changeLang }) => {
                 <Route path="/user-management" element={<UserManagement />} />
                 <Route path="/change-password" element={<ChangePassword />} />
                 <Route path="/database-backup" element={<DatabaseBackup />} />
+                <Route path="/cryo-management" element={<CryoTankManagement />} />
+                <Route path="/cryo-tank/:tankId/boxes" element={<CryoBoxManagement />} />
+                <Route path="/cryo-box/:boxId/grid" element={<CryoGrid />} />
                 <Route path="*" element={<Navigate to="/table-definition" replace />} />
               </Routes>
             </Content>

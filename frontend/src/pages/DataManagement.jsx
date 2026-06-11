@@ -1,14 +1,17 @@
 import React, { useState, useEffect, useContext } from 'react'
-import { Card, Button, Modal, Form, Input, message, Popconfirm, Space, InputNumber, Alert, Select, Dropdown, Menu, Checkbox } from 'antd'
-import { PlusOutlined, EditOutlined, DeleteOutlined, AppstoreOutlined, SearchOutlined, CopyOutlined } from '@ant-design/icons'
+import { Card, Button, Modal, Form, Input, message, Popconfirm, Space, InputNumber, Alert, Select, Dropdown, Menu, Checkbox, Tag } from 'antd'
+import { PlusOutlined, EditOutlined, DeleteOutlined, AppstoreOutlined, SearchOutlined, CopyOutlined, EnvironmentOutlined } from '@ant-design/icons'
+import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import { TableContext } from '../App'
 import MultiSelectDelete from '../components/MultiSelectDelete'
+import StoragePositionPicker from './StoragePositionPicker'
 
 const DataManagement = () => {
   const tableContext = useContext(TableContext);
   const tables = tableContext?.tables || [];
   const selectedTableId = tableContext?.selectedTableId || null;
+  const navigate = useNavigate();
   const setSelectedTableId = tableContext?.setSelectedTableId || (() => {});
   const fetchTables = tableContext?.fetchTables || (() => {});
   const [selectedTable, setSelectedTable] = useState(null)
@@ -53,6 +56,10 @@ const DataManagement = () => {
   
   // 搜索功能相关状态 - 改为基于表格ID的独立存储
   const [searchStates, setSearchStates] = useState({})
+  const [storagePickerVisible, setStoragePickerVisible] = useState(false)
+  const [currentStorageColumn, setCurrentStorageColumn] = useState(null)
+  const [selectedPositions, setSelectedPositions] = useState({}) // {columnName: [positions]}
+  const [storagePreSelected, setStoragePreSelected] = useState([]) // pre-selected positions for edit mode
   
   // 当前搜索文本，用于分页时保持搜索状态
   const [currentSearchText, setCurrentSearchText] = useState('')
@@ -382,13 +389,23 @@ const DataManagement = () => {
           if (column.autoIncrement) {
             return
           }
-          
+
+          // 存储列：提取 positions 数据
+          if (column.is_storage) {
+            if (typeof value === 'object' && value !== null && value._storage) {
+              const positions = value._positions || []
+              setSelectedPositions(prev => ({ ...prev, [key]: positions }))
+              formData[key] = JSON.stringify(value)
+            }
+            return
+          }
+
           console.log(`[DEBUG] Processing column ${key}, value:`, value);
           console.log(`[DEBUG] Value type:`, typeof value);
-          
+
           let fieldValue = ''
           let isLink = false
-          
+
           // 检查是否为链接对象 { _text: '显示文本', _link: '链接URL' }
           try {
             if (typeof value === 'object' && value !== null) {
@@ -412,18 +429,18 @@ const DataManagement = () => {
             fieldValue = value !== null && value !== undefined ? String(value) : ''
             isLink = false
           }
-          
+
           console.log(`[DEBUG] Processed fieldValue:`, fieldValue, `isLink:`, isLink);
-          
+
           // 设置保留链接状态和表单值
           initialKeepLinks[key] = isLink // 只有链接对象才显示保留链接选项
           formData[key] = fieldValue // 设置表单默认值
         })
-        
+
         setKeepLinks(initialKeepLinks)
-        
+
         console.log(`[DEBUG] Final formData:`, formData);
-        
+
         // 直接设置表单值，然后显示模态框
         form.setFieldsValue(formData)
       }
@@ -434,6 +451,7 @@ const DataManagement = () => {
       setCurrentData(null)
       setCopiedOriginalData(null)
       setKeepLinks({})
+      setSelectedPositions({})
       form.resetFields()
     }
     
@@ -459,11 +477,39 @@ const DataManagement = () => {
       }
     }
     
+    // 处理存储列：parse hidden field values
+    if (selectedTable) {
+      selectedTable.columns.forEach(column => {
+        if (column.is_storage) {
+          const key = column.column_name
+          const raw = values[key]
+          if (raw && typeof raw === 'string' && raw.startsWith('{')) {
+            try {
+              values[key] = JSON.parse(raw)
+            } catch (e) {
+              // Not valid JSON, skip
+            }
+          } else if (selectedPositions[key] && selectedPositions[key].length > 0) {
+            // Build from selectedPositions
+            const positions = selectedPositions[key]
+            const textParts = positions.map(p => `${p.tank_name} > ${p.box_name} > ${p.label}`)
+            values[key] = {
+              _storage: true,
+              _positions: positions,
+              _text: textParts.join(', ')
+            }
+          }
+        }
+      })
+    }
+
     // 验证：确保至少有一个字段有内容
     const hasContent = Object.values(values).some(value => {
-      return value !== null && value !== undefined && value.trim() !== ''
+      if (value === null || value === undefined) return false
+      if (typeof value === 'object' && value._storage) return true // storage data counts as content
+      return String(value).trim() !== ''
     })
-    
+
     if (!hasContent) {
       message.warning('请至少输入一个字段的内容')
       return
@@ -483,6 +529,11 @@ const DataManagement = () => {
           if (column.autoIncrement) {
             // 保留自增列的原有值
             submitData[key] = currentData.data[key]
+            return
+          }
+
+          // 跳过存储列（值已在前期 parsed）
+          if (column.is_storage) {
             return
           }
           
@@ -663,6 +714,54 @@ const DataManagement = () => {
   }
   
   // 清除搜索
+  // 打开存储位置选择器
+  const openStoragePicker = (columnName) => {
+    setCurrentStorageColumn(columnName)
+    const existing = selectedPositions[columnName] || []
+    setStoragePreSelected(existing)
+    setStoragePickerVisible(true)
+  }
+
+  // 存储位置选择确认
+  const handleStorageConfirm = (positions) => {
+    if (!currentStorageColumn) return
+
+    // Build the _text display string
+    const textParts = positions.map(p => {
+      return `${p.tank_name} > ${p.box_name} > ${p.label}`
+    })
+    const displayText = textParts.join(', ')
+
+    // Build the storage data object
+    const storageData = {
+      _storage: true,
+      _positions: positions,
+      _text: displayText
+    }
+
+    // Update form field value
+    form.setFieldsValue({ [currentStorageColumn]: '' })
+    // Store in selectedPositions for the Tag display
+    setSelectedPositions(prev => ({
+      ...prev,
+      [currentStorageColumn]: positions
+    }))
+    // Store the actual data as a hidden field via form
+    form.setFieldValue(currentStorageColumn, JSON.stringify(storageData))
+
+    setStoragePickerVisible(false)
+  }
+
+  // 移除已选位置
+  const removePosition = (columnName, position) => {
+    setSelectedPositions(prev => {
+      const updated = (prev[columnName] || []).filter(
+        p => !(p.row === position.row && p.col === position.col && p.box_id === position.box_id)
+      )
+      return { ...prev, [columnName]: updated }
+    })
+  }
+
   const handleClearSearch = () => {
     setCurrentSearchState({
       searchText: '',
@@ -774,11 +873,10 @@ const DataManagement = () => {
               console.log('[高亮调试] 直接设置highlightedRowId:', rowId)
               setHighlightedRowId(rowId)
               
-              // 6秒后移除高亮效果
+              // 2秒后移除高亮效果
               const clearTimer = setTimeout(() => {
-                console.log('[高亮调试] 6秒后清除highlightedRowId')
                 setHighlightedRowId(null)
-              }, 6000)
+              }, 2000)
               
               // 保存定时器引用，确保能被清除
               if (window.highlightTimer) {
@@ -936,13 +1034,72 @@ const DataManagement = () => {
           maxWidth: 300,
           render: (text, record) => {
             const value = record.data[column.column_name]
+            // 存储列对象：显示为链接文本
+            if (typeof value === 'object' && value !== null && value._storage) {
+              const displayText = value._text || '查看存储位置'
+              const positions = value._positions || []
+              if (positions.length > 0) {
+                // Link to the first position's box grid
+                const firstPos = positions[0]
+                const highlight = positions.map(p => `${p.row},${p.col}`).join('|')
+                return (
+                  <a
+                    href={`/cryo-box/${firstPos.box_id}/grid`}
+                    onClick={(e) => {
+                      e.preventDefault()
+                      localStorage.setItem('cryoHighlight', highlight)
+                      navigate(`/cryo-box/${firstPos.box_id}/grid`)
+                    }}
+                    style={{
+                      color: '#1890ff',
+                      textDecoration: 'underline',
+                      cursor: 'pointer',
+                      display: 'inline-block',
+                      width: '100%',
+                      wordBreak: 'break-word'
+                    }}
+                    title={positions.map(p => `${p.tank_name} > ${p.box_name} > ${p.label}`).join('\n')}
+                  >
+                    {displayText}
+                  </a>
+                )
+              }
+              return <span>{displayText}</span>
+            }
+
             // 如果是链接对象，直接渲染为链接
             if (typeof value === 'object' && value !== null && value._text && value._link) {
               const highlightedText = highlightText(value._text)
-              
+
               // 检查链接是否为表格链接
               const isTableLink = value._link.startsWith('table:');
-              
+
+              // Check for cryo link
+              const isCryoLink = value._link.startsWith('cryo:');
+
+              if (isCryoLink) {
+                const [, boxId, row, col] = value._link.split(':')
+                return (
+                  <a
+                    href={`/cryo-box/${boxId}/grid`}
+                    onClick={(e) => {
+                      e.preventDefault()
+                      localStorage.setItem('cryoHighlight', `${row},${col}`)
+                      navigate(`/cryo-box/${boxId}/grid`)
+                    }}
+                    style={{
+                      color: '#1890ff',
+                      textDecoration: 'underline',
+                      cursor: 'pointer',
+                      display: 'inline-block',
+                      width: '100%',
+                      overflow: 'hidden'
+                    }}
+                    dangerouslySetInnerHTML={{ __html: highlightedText }}
+                  />
+                )
+              }
+
               if (isTableLink) {
                 // 处理表格链接，格式：table:{targetTableId}:{targetRowId}
                 return (
@@ -1249,35 +1406,69 @@ const DataManagement = () => {
   // 生成表单字段
   const generateFormItems = () => {
     if (!selectedTable || !Array.isArray(selectedTable.columns)) return null
-    
+
     return selectedTable.columns.map(column => {
       // 如果该列启用了自增功能，则不显示输入框
       if (column.autoIncrement) {
         return null
       }
-      
+
       const columnName = column.column_name
-      
+
+      // 存储列：显示选择按钮 + 已选位置标签
+      if (column.is_storage) {
+        const currentPositions = selectedPositions[columnName] || []
+        return (
+          <div key={columnName} style={{ marginBottom: 16 }}>
+            <Form.Item label={columnName}>
+              <div>
+                <Button
+                  icon={<EnvironmentOutlined />}
+                  onClick={() => openStoragePicker(columnName)}
+                >
+                  选择存储位置
+                </Button>
+                {currentPositions.length > 0 && (
+                  <div style={{ marginTop: 8 }}>
+                    {currentPositions.map((p, idx) => (
+                      <Tag
+                        key={idx}
+                        closable
+                        onClose={() => removePosition(columnName, p)}
+                        color="blue"
+                      >
+                        {p.box_name} &gt; {p.label}
+                      </Tag>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </Form.Item>
+            {/* Hidden input to store serialized data */}
+            <Form.Item name={columnName} hidden>
+              <Input />
+            </Form.Item>
+          </div>
+        )
+      }
+
       // 检查当前字段是否有链接
-      const hasLink = isEditMode && currentData && 
-                     currentData.data[columnName] && 
-                     typeof currentData.data[columnName] === 'object' && 
+      const hasLink = isEditMode && currentData &&
+                     currentData.data[columnName] &&
+                     typeof currentData.data[columnName] === 'object' &&
                      currentData.data[columnName]._link
-      
+
       return (
         <div key={columnName} style={{ marginBottom: 16 }}>
-          <Form.Item 
-            label={columnName} 
+          <Form.Item
+            label={columnName}
             name={columnName}
-            // 移除必填规则，允许字段为空
           >
-            {/* 使用Form.Item只包裹Input，确保只有一个子元素 */}
-            <Input 
-              placeholder={`请输入${columnName}`} 
+            <Input
+              placeholder={`请输入${columnName}`}
               style={{ width: '60%', marginRight: 12 }}
             />
           </Form.Item>
-          {/* 如果有链接，在Form.Item外部显示保留链接checkbox */}
           {hasLink && (
             <div style={{ display: 'inline-flex', alignItems: 'center', verticalAlign: 'middle', marginTop: -28, marginLeft: '15%' }}>
               <Checkbox
@@ -1295,7 +1486,7 @@ const DataManagement = () => {
           )}
         </div>
       )
-    }).filter(item => item !== null) // 过滤掉自增列
+    }).filter(item => item !== null)
   }
 
   return (
@@ -1635,6 +1826,14 @@ const DataManagement = () => {
           </Form.Item>
         </Form>
       </Modal>
+
+      {/* 存储位置选择器 */}
+      <StoragePositionPicker
+        visible={storagePickerVisible}
+        onCancel={() => setStoragePickerVisible(false)}
+        onConfirm={handleStorageConfirm}
+        preSelected={storagePreSelected}
+      />
     </Card>
   )
 }
