@@ -160,8 +160,22 @@ const DataManagement = () => {
       })
       
       if (response.data.code === 200) {
-        setDataList(response.data.data.items)
-        setTotal(response.data.data.total)
+        const items = response.data.data.items || []
+        const totalCount = response.data.data.total || 0
+
+        setDataList(items)
+        setTotal(totalCount)
+
+        if (searchParams && searchParams.searchText) {
+          setCurrentSearchState({
+            searchText: searchParams.searchText.trim(),
+            searchResults: items,
+            isSearching: true,
+            searchCount: totalCount,
+            highlightedText: searchParams.searchText.trim()
+          })
+          setCurrentSearchText(searchParams.searchText.trim())
+        }
       } else {
         message.error(response.data.message)
         // 确保数据列表为空时也能正常显示
