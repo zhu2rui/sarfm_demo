@@ -1156,6 +1156,51 @@ const MultiSelectDelete = ({
                   
                   // 检查数据是否包含链接信息
                   if (typeof displayValue === 'object' && displayValue !== null) {
+                    if (displayValue._storage) {
+                      valueForEvent = displayValue._text || '查看存储位置'
+                      const positions = displayValue._positions || []
+                      if (positions.length > 0) {
+                        const firstPos = positions[0]
+                        const highlight = positions.map(p => `${p.row},${p.col}`).join('|')
+                        finalContent = (
+                          <a
+                            href={`/cryo-box/${firstPos.box_id}/grid`}
+                            onClick={(e) => {
+                              e.preventDefault()
+                              localStorage.setItem('cryoHighlight', highlight)
+                              window.location.href = `/cryo-box/${firstPos.box_id}/grid`
+                            }}
+                            style={{
+                              color: '#1890ff',
+                              textDecoration: 'underline',
+                              cursor: 'pointer',
+                              display: 'inline-block',
+                              width: '100%',
+                              boxSizing: 'border-box',
+                              wordBreak: 'break-word',
+                              overflow: 'hidden'
+                            }}
+                          >
+                            {displayValue._text || '查看存储位置'}
+                          </a>
+                        )
+                      } else {
+                        finalContent = (
+                          <span style={{
+                            color: '#1890ff',
+                            textDecoration: 'underline',
+                            cursor: 'pointer',
+                            display: 'inline-block',
+                            width: '100%',
+                            boxSizing: 'border-box',
+                            wordBreak: 'break-word',
+                            overflow: 'hidden'
+                          }}>
+                            {displayValue._text || '查看存储位置'}
+                          </span>
+                        )
+                      }
+                    } else
                     // 如果数据是包含链接信息的对象 { _text: '原始文本', _link: '链接URL' }
                     if (displayValue._text && displayValue._link) {
                       valueForEvent = displayValue._text;
