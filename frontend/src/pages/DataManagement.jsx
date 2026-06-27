@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useContext } from 'react'
+﻿import React, { useState, useEffect, useContext } from 'react'
 import { Card, Button, Modal, Form, Input, message, Popconfirm, Space, InputNumber, Alert, Select, Dropdown, Menu, Checkbox, Tag } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined, AppstoreOutlined, SearchOutlined, CopyOutlined, EnvironmentOutlined } from '@ant-design/icons'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import axios from 'axios'
 import { TableContext } from '../App'
 import MultiSelectDelete from '../components/MultiSelectDelete'
@@ -12,6 +12,7 @@ const DataManagement = () => {
   const tables = tableContext?.tables || [];
   const selectedTableId = tableContext?.selectedTableId || null;
   const navigate = useNavigate();
+  const location = useLocation();
   const setSelectedTableId = tableContext?.setSelectedTableId || (() => {});
   const fetchTables = tableContext?.fetchTables || (() => {});
   const [selectedTable, setSelectedTable] = useState(null)
@@ -60,6 +61,11 @@ const DataManagement = () => {
   const [currentStorageColumn, setCurrentStorageColumn] = useState(null)
   const [selectedPositions, setSelectedPositions] = useState({}) // {columnName: [positions]}
   const [storagePreSelected, setStoragePreSelected] = useState([]) // pre-selected positions for edit mode
+  const [copyRowChooserVisible, setCopyRowChooserVisible] = useState(false)
+  const [copyRowSelectedId, setCopyRowSelectedId] = useState(null)
+  const [copyRowSearchText, setCopyRowSearchText] = useState('')
+  const [copyRowSearchResults, setCopyRowSearchResults] = useState([])
+  const [copyRowSearchLoading, setCopyRowSearchLoading] = useState(false)
   
   // 当前搜索文本，用于分页时保持搜索状态
   const [currentSearchText, setCurrentSearchText] = useState('')
@@ -92,6 +98,15 @@ const DataManagement = () => {
         ...newState
       }
     }))
+  }
+
+  const buildStorageValue = (positions) => {
+    const textParts = positions.map(p => `${p.tank_name} > ${p.box_name} > ${p.label}`)
+    return {
+      _storage: true,
+      _positions: positions,
+      _text: textParts.join(', ')
+    }
   }
 
   // 获取用户角色
@@ -139,6 +154,42 @@ const DataManagement = () => {
   }, [selectedTableId, tables])
 
   // 获取库存数据
+
+  useEffect(() => {
+    const stateDraft = location.state?.cryoEntry
+    const draftStr = stateDraft ? JSON.stringify(stateDraft) : localStorage.getItem('cryoEntryDraft')
+    const savedTableId = localStorage.getItem('selectedTableId')
+    if (!draftStr || !savedTableId || !selectedTable) return
+
+    try {
+      const draft = JSON.parse(draftStr)
+      if (String(savedTableId) !== String(selectedTable.id)) return
+
+      if (draft.positions && draft.positions.length > 0) {
+        const storageColumns = Array.isArray(selectedTable.columns)
+          ? selectedTable.columns.filter(col => col.is_storage)
+          : []
+        const targetColumn = storageColumns[0]?.column_name
+        if (!targetColumn) return
+
+        setCurrentStorageColumn(targetColumn)
+        setSelectedPositions(prev => ({
+          ...prev,
+          [targetColumn]: draft.positions
+        }))
+        form.setFieldsValue({
+          [targetColumn]: JSON.stringify(buildStorageValue(draft.positions))
+        })
+        setIsEditMode(false)
+        setIsCopyMode(false)
+        setCurrentData(null)
+        setIsModalVisible(true)
+      }
+    } finally {
+      localStorage.removeItem('cryoEntryDraft')
+    }
+  }, [selectedTable, location.state, form])
+
   const fetchData = async (searchParams = null) => {
     if (!selectedTable) return
     
@@ -310,7 +361,7 @@ const DataManagement = () => {
   }
 
   // 显示添加/编辑模态框
-  const showModal = (record = null, isCopy = false) => {
+  const showModal = (record = null, isCopy = false, preset = null) => {
     if (record) {
       if (isCopy) {
         // 复制模式：使用添加模式，但填充数据
@@ -467,8 +518,31 @@ const DataManagement = () => {
       setKeepLinks({})
       setSelectedPositions({})
       form.resetFields()
+
+      if (preset?.tableId && selectedTable && Number(preset.tableId) !== Number(selectedTable.id)) {
+        const target = tables.find(t => Number(t.id) === Number(preset.tableId))
+        if (target) {
+          setSelectedTable(target)
+          setSelectedTableId(target.id)
+        }
+      }
     }
     
+    if (preset?.positions && preset.positions.length > 0 && preset?.columnName) {
+      const storageValue = buildStorageValue(preset.positions)
+      setSelectedPositions(prev => ({
+        ...prev,
+        [preset.columnName]: preset.positions
+      }))
+      form.setFieldsValue({
+        [preset.columnName]: JSON.stringify(storageValue)
+      })
+    }
+
+    if (preset?.sourceRowId) {
+      setCopyRowSelectedId(preset.sourceRowId)
+    }
+
     // 显示模态框
     setIsModalVisible(true)
   }
@@ -486,8 +560,8 @@ const DataManagement = () => {
       })
       
       if (!hasModified) {
-        message.warning('没有修改任何一个值')
-        return
+        const confirmed = window.confirm('当前内容未做任何修改，是否仍然继续提交？')
+        if (!confirmed) return
       }
     }
     
@@ -788,6 +862,78 @@ const DataManagement = () => {
     setPage(1)
     // 重新获取原始数据（不带搜索条件）
     fetchData()
+  }
+
+  const applyCopySource = (sourceRecord) => {
+    if (!sourceRecord || !selectedTable) return
+
+    const formData = {}
+    const initialKeepLinks = {}
+
+    setIsEditMode(false)
+    setIsCopyMode(true)
+    setCurrentData(sourceRecord)
+
+    selectedTable.columns.forEach(column => {
+      const key = column.column_name
+      const value = sourceRecord.data?.[key]
+      if (column.autoIncrement) return
+
+      if (column.is_storage) {
+        return
+      }
+
+      if (typeof value === 'object' && value !== null && value._text !== undefined) {
+        formData[key] = value._text
+        initialKeepLinks[key] = !!value._link
+      } else if (value !== null && value !== undefined) {
+        formData[key] = String(value)
+      } else {
+        formData[key] = ''
+      }
+    })
+
+    setKeepLinks(initialKeepLinks)
+    setCopiedOriginalData(formData)
+    form.setFieldsValue(formData)
+    setCopyRowSelectedId(sourceRecord.id)
+    setCopyRowChooserVisible(false)
+  }
+
+  const handleCopyRowSearch = async () => {
+    if (!selectedTable) return
+    const keyword = copyRowSearchText.trim()
+    if (!keyword) {
+      message.warning('请输入搜索关键词')
+      return
+    }
+
+    setCopyRowSearchLoading(true)
+    try {
+      const response = await axios.get(`/api/v1/tables/${selectedTable.id}/data`, {
+        params: {
+          page: 1,
+          per_page: 50,
+          search: keyword
+        }
+      })
+      if (response.data.code === 200) {
+        setCopyRowSearchResults(response.data.data.items || [])
+      } else {
+        message.error(response.data.message || '搜索失败')
+      }
+    } catch (error) {
+      message.error('搜索失败，请检查网络连接')
+      console.error('Copy row search error:', error)
+    } finally {
+      setCopyRowSearchLoading(false)
+    }
+  }
+
+  const handleOpenCopyRowChooser = () => {
+    setCopyRowSearchText('')
+    setCopyRowSearchResults([])
+    setCopyRowChooserVisible(true)
   }
   
   // 高亮显示匹配文本
@@ -1827,6 +1973,17 @@ const DataManagement = () => {
             </div>
           )}
           
+          {!isEditMode && selectedTable && (
+            <div style={{ marginBottom: 16, padding: 16, backgroundColor: '#fafafa', borderRadius: 8, border: '1px solid #e8e8e8' }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <Button icon={<CopyOutlined />} onClick={handleOpenCopyRowChooser}>
+                  从已有行复制
+                </Button>
+                {copyRowSelectedId && <Tag color="blue">已复制行 #{copyRowSelectedId}</Tag>}
+              </div>
+            </div>
+          )}
+
           {generateFormItems()}
           <Form.Item style={{ display: 'flex', justifyContent: 'flex-end' }}>
             <Space>
@@ -1842,6 +1999,69 @@ const DataManagement = () => {
       </Modal>
 
       {/* 存储位置选择器 */}
+
+      <Modal
+        title="从已有行复制"
+        open={copyRowChooserVisible}
+        onCancel={() => setCopyRowChooserVisible(false)}
+        footer={null}
+        width={900}
+      >
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <Input
+            value={copyRowSearchText}
+            onChange={e => setCopyRowSearchText(e.target.value)}
+            onPressEnter={handleCopyRowSearch}
+            placeholder="搜索已有行"
+            allowClear
+          />
+          <Button type="primary" icon={<SearchOutlined />} onClick={handleCopyRowSearch} loading={copyRowSearchLoading}>
+            搜索
+          </Button>
+        </div>
+        <div style={{ maxHeight: 520, overflow: 'auto' }}>
+          {copyRowSearchResults.length === 0 ? (
+            <div style={{ padding: '24px 0', textAlign: 'center', color: '#999' }}>
+              请输入关键词搜索已有数据
+            </div>
+          ) : (
+            copyRowSearchResults.map(record => (
+              <div
+                key={record.id}
+                onClick={() => applyCopySource(record)}
+                style={{
+                  padding: '10px 12px',
+                  border: '1px solid #e8e8e8',
+                  borderRadius: 6,
+                  marginBottom: 8,
+                  cursor: 'pointer',
+                  background: copyRowSelectedId === record.id ? '#e6f7ff' : '#fff'
+                }}
+              >
+                <Space wrap>
+                  <Tag color="blue">#{record.id}</Tag>
+                  {selectedTable?.columns
+                    ?.filter(col => !col.is_storage)
+                    .slice(0, 3)
+                    .map(col => (
+                      <span key={col.column_name} style={{ color: '#666' }}>
+                        {col.column_name}: {
+                          typeof record.data?.[col.column_name] === 'object'
+                            ? (record.data?.[col.column_name]?._text || JSON.stringify(record.data?.[col.column_name]))
+                            : String(record.data?.[col.column_name] ?? '')
+                        }
+                      </span>
+                    ))}
+                </Space>
+              </div>
+            ))
+          )}
+          <div style={{ marginTop: 12, textAlign: 'right' }}>
+            <Button onClick={() => setCopyRowChooserVisible(false)}>取消</Button>
+          </div>
+        </div>
+      </Modal>
+
       <StoragePositionPicker
         visible={storagePickerVisible}
         onCancel={() => setStoragePickerVisible(false)}
@@ -1853,3 +2073,4 @@ const DataManagement = () => {
 }
 
 export default DataManagement
+

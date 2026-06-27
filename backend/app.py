@@ -1284,9 +1284,7 @@ def update_inventory_data(current_user, table_id, data_id):
                             box_id=old_pos['box_id'], row=old_pos['row'], col=old_pos['col']
                         ).first()
                         if cell:
-                            cell.data = '{}'
-                            cell.linked_table_id = None
-                            cell.linked_data_id = None
+                            db.session.delete(cell)
 
     # 验证并处理新的存储位置
     storage_positions_to_link = []
@@ -1382,9 +1380,7 @@ def _release_linked_positions(inventory_data_row):
                         box_id=pos['box_id'], row=pos['row'], col=pos['col']
                     ).first()
                     if cell:
-                        cell.data = '{}'
-                        cell.linked_table_id = None
-                        cell.linked_data_id = None
+                        db.session.delete(cell)
     except Exception:
         pass
 
@@ -3165,6 +3161,19 @@ def delete_cryo_box(current_user, box_id):
 
 ROW_LABELS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I']
 
+
+def _is_meaningful_cryo_cell(cell):
+    """A real occupied cell must have linked data or non-empty content."""
+    if not cell:
+        return False
+    if cell.linked_table_id or cell.linked_data_id:
+        return True
+    try:
+        data_obj = json.loads(cell.data) if isinstance(cell.data, str) else (cell.data or {})
+    except Exception:
+        data_obj = {}
+    return bool(data_obj) and data_obj != {}
+
 @app.route('/api/v1/cryo-boxes/<int:box_id>/grid', methods=['GET'])
 @token_required
 def get_cryo_grid(current_user, box_id):
@@ -3180,6 +3189,8 @@ def get_cryo_grid(current_user, box_id):
     cells = CryoCell.query.filter_by(box_id=box_id).all()
     cell_map = {}
     for cell in cells:
+        if not _is_meaningful_cryo_cell(cell):
+            continue
         cell_info = {
             'id': cell.id,
             'row': cell.row,
@@ -3209,7 +3220,7 @@ def get_cryo_grid(current_user, box_id):
                 row_data.append(None)  # 空格子
         grid.append(row_data)
 
-    occupied = len(cells)
+    occupied = len([cell for cell in cells if _is_meaningful_cryo_cell(cell)])
     total = 81
 
     return jsonify({
@@ -3241,7 +3252,10 @@ def get_available_positions(current_user, box_id):
         return jsonify({'code': 404, 'message': '冻存盒不存在', 'data': None}), 404
 
     # 获取已占用的位置
-    occupied = CryoCell.query.filter_by(box_id=box_id).all()
+    occupied = [
+        cell for cell in CryoCell.query.filter_by(box_id=box_id).all()
+        if _is_meaningful_cryo_cell(cell)
+    ]
     occupied_set = {(c.row, c.col) for c in occupied}
 
     # 生成所有空位置列表

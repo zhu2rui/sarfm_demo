@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+﻿import React, { useState, useEffect, useRef } from 'react'
 import { Card, Button, Modal, Input, message, Popconfirm, Space, Breadcrumb, Tag, Tooltip, Select, Empty, Dropdown } from 'antd'
 import { HomeOutlined } from '@ant-design/icons'
 import { useNavigate, useParams, Link } from 'react-router-dom'
@@ -18,8 +18,9 @@ const CryoGrid = () => {
   const [dragSelected, setDragSelected] = useState(new Set()) // Set of "row,col"
   const dragSelectedRef = useRef(dragSelected)
   dragSelectedRef.current = dragSelected
-  const [batchReason, setBatchReason] = useState('')
   const [batchLoading, setBatchLoading] = useState(false)
+  const [tables, setTables] = useState([])
+  const [selectedEntryTableId, setSelectedEntryTableId] = useState(null)
   const [searchText, setSearchText] = useState('')
   const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0, cell: null })
   const navigate = useNavigate()
@@ -30,6 +31,7 @@ const CryoGrid = () => {
     const user = JSON.parse(localStorage.getItem('user'))
     if (user) setUserRole(user.role)
     if (boxId) fetchGrid()
+    fetchTables()
 
     // Read highlight from localStorage
     const highlight = localStorage.getItem('cryoHighlight')
@@ -51,9 +53,15 @@ const CryoGrid = () => {
     const globalClick = (e) => {
       const gridEl = document.getElementById('cryo-grid-container')
       const batchBar = document.getElementById('cryo-batch-bar')
-      if (dragSelectedRef.current.size > 0 && !gridEl?.contains(e.target) && !batchBar?.contains(e.target)) {
+      const selectPopup = e.target?.closest?.('.ant-select-dropdown')
+      if (
+        dragSelectedRef.current.size > 0 &&
+        !gridEl?.contains(e.target) &&
+        !batchBar?.contains(e.target) &&
+        !selectPopup
+      ) {
         setDragSelected(new Set())
-        setBatchReason('')
+        setSelectedEntryTableId(null)
       }
     }
     document.addEventListener('click', globalClick)
@@ -92,6 +100,17 @@ const CryoGrid = () => {
       }
     } catch (error) {
       // silent fail - boxes dropdown is secondary
+    }
+  }
+
+  const fetchTables = async () => {
+    try {
+      const response = await axios.get('/api/v1/tables')
+      if (response.data.code === 200) {
+        setTables(response.data.data.items || [])
+      }
+    } catch {
+      // entry dropdown is optional
     }
   }
 
@@ -139,6 +158,61 @@ const CryoGrid = () => {
       highlight: true
     }))
     closeContextMenu()
+    navigate('/data-management')
+  }
+
+  const getSelectedPositions = () => {
+    const positions = []
+    dragSelected.forEach(key => {
+      const [r, c] = key.split(',').map(Number)
+      const cell = gridData?.grid?.[r - 1]?.[c - 1]
+      if (!cell) {
+        positions.push({
+          box_id: box?.id,
+          box_name: box?.box_name || '',
+          tank_id: box?.tank_id,
+          tank_name: box?.tank_name || '',
+          row: r,
+          col: c,
+          label: `${ROW_LABELS[r - 1]}${c}`
+        })
+      }
+    })
+    return positions
+  }
+
+  const openDataEntry = () => {
+    const positions = getSelectedPositions()
+    if (positions.length === 0) {
+      message.warning('请先选择空格子')
+      return
+    }
+
+    if (!selectedEntryTableId) {
+      message.warning('请先选择要录入的表格')
+      return
+    }
+
+    const chosenTable = tables.find(t => String(t.id) === String(selectedEntryTableId))
+    if (!chosenTable) {
+      message.warning('表格不存在')
+      return
+    }
+    const hasStorage = Array.isArray(chosenTable.columns) && chosenTable.columns.some(col => col.is_storage)
+    if (!hasStorage) {
+      message.warning('请选择带有储存列的表格')
+      return
+    }
+
+    localStorage.setItem('selectedTableId', String(chosenTable.id))
+    localStorage.setItem('cryoEntryDraft', JSON.stringify({
+      positions,
+      tableId: chosenTable.id,
+      sourceBoxId: box?.id,
+      sourceBoxName: box?.box_name || '',
+      sourceTankId: box?.tank_id,
+      sourceTankName: box?.tank_name || ''
+    }))
     navigate('/data-management')
   }
 
@@ -280,56 +354,7 @@ const CryoGrid = () => {
   // Clear drag selection
   const clearDragSelection = () => {
     setDragSelected(new Set())
-    setBatchReason('')
-  }
-
-  // Batch occupy selected cells
-  const handleBatchOccupy = async () => {
-    const reason = batchReason.trim()
-    if (!reason) {
-      message.warning('请输入占位原因')
-      return
-    }
-    if (dragSelected.size === 0) {
-      message.warning('请先框选格子')
-      return
-    }
-
-    // Filter to only empty cells
-    const emptyCells = []
-    dragSelected.forEach(key => {
-      const [r, c] = key.split(',').map(Number)
-      const cell = gridData?.grid?.[r - 1]?.[c - 1]
-      if (!cell) emptyCells.push({ row: r, col: c })
-    })
-
-    if (emptyCells.length === 0) {
-      message.warning('选中的格子都已被占用')
-      return
-    }
-
-    setBatchLoading(true)
-    let success = 0
-    let fail = 0
-    for (const { row, col } of emptyCells) {
-      try {
-        const resp = await axios.put(
-          `/api/v1/cryo-boxes/${boxId}/cells/${row}/${col}`,
-          { data: { _manual: true, _reason: reason } }
-        )
-        if (resp.data.code === 200) success++
-        else fail++
-      } catch {
-        fail++
-      }
-    }
-    setBatchLoading(false)
-
-    if (success > 0) message.success(`成功占用 ${success} 个格子` + (fail > 0 ? `，${fail} 个失败` : ''))
-    else message.error('占用失败')
-
-    clearDragSelection()
-    fetchGrid()
+    setSelectedEntryTableId(null)
   }
 
   const handleBoxSwitch = (newBoxId) => {
@@ -696,7 +721,7 @@ const CryoGrid = () => {
         </div>
       )}
 
-      {/* Batch occupy floating bar */}
+      {/* Entry floating bar */}
       {dragSelected.size > 0 && (
         <div id="cryo-batch-bar" style={{
           position: 'fixed', bottom: 20, left: '50%', transform: 'translateX(-50%)',
@@ -707,16 +732,23 @@ const CryoGrid = () => {
           <span style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>
             已选 <span style={{ color: '#1677ff' }}>{dragSelected.size}</span> 格
           </span>
-          <Input
-            placeholder="占位原因"
-            value={batchReason}
-            onChange={e => setBatchReason(e.target.value)}
-            onPressEnter={handleBatchOccupy}
-            style={{ width: 200 }}
-            allowClear
+          <Select
+            value={selectedEntryTableId}
+            onChange={setSelectedEntryTableId}
+            placeholder="选择要录入的表格"
+            style={{ width: 260 }}
+            getPopupContainer={(triggerNode) => triggerNode.parentElement}
+            options={tables.map(table => {
+              const hasStorage = Array.isArray(table.columns) && table.columns.some(col => col.is_storage)
+              return {
+                value: table.id,
+                label: hasStorage ? table.table_name : `${table.table_name}（无储存列）`,
+                disabled: !hasStorage
+              }
+            })}
           />
-          <Button type="primary" onClick={handleBatchOccupy} loading={batchLoading}>
-            占位
+          <Button type="primary" onClick={openDataEntry} loading={batchLoading}>
+            录入
           </Button>
           <Popconfirm
             title={`确定清空选中的 ${dragSelected.size} 个格子吗？`}
@@ -735,3 +767,5 @@ const CryoGrid = () => {
 }
 
 export default CryoGrid
+
+
