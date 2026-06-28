@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useContext } from 'react'
+﻿import React, { useState, useEffect, useRef, useContext } from 'react'
 import { Table, Checkbox, Button, message, Modal, Space, Tag, Spin, Dropdown, Menu, Input, Select } from 'antd'
 import { DeleteOutlined, LoadingOutlined, LinkOutlined, EditOutlined, SearchOutlined, CopyOutlined } from '@ant-design/icons'
 import axios from 'axios'
@@ -9,58 +9,59 @@ const { confirm } = Modal
 const MultiSelectDelete = ({ 
   dataSource, 
   columns, 
-  hiddenColumns = [], // 下拉列列表
+  hiddenColumns = [], // 涓嬫媺鍒楀垪琛?
   onDelete, 
   rowKey = 'id',
   loading = false,
   deleteLoading = false,
   showIndex = true,
+  showSelectionColumn = true,
   pagination = {},
-  // 展开行配置
+  // 灞曞紑琛岄厤缃?
   expandable = {},
-  // 高亮行ID，用于动画效果
+  // 楂樹寒琛孖D锛岀敤浜庡姩鐢绘晥鏋?
   highlightedRowId = null
 }) => {
-  // 选中的行ID集合
+  // 閫変腑鐨勮ID闆嗗悎
   const [selectedRowKeys, setSelectedRowKeys] = useState([])
-  // 最近一次点击的行索引
+  // 鏈€杩戜竴娆＄偣鍑荤殑琛岀储寮?
   const lastClickIndex = useRef(-1)
-  // 数据索引映射
+  // 鏁版嵁绱㈠紩鏄犲皠
   const dataIndexMap = useRef(new Map())
-  // 动态列宽映射
+  // 鍔ㄦ€佸垪瀹芥槧灏?
   const [columnWidths, setColumnWidths] = useState({})
-  // 表格容器引用
+  // 琛ㄦ牸瀹瑰櫒寮曠敤
   const tableRef = useRef(null)
-  // 表格滚动容器引用
+  // 琛ㄦ牸婊氬姩瀹瑰櫒寮曠敤
   const tableContainerRef = useRef(null)
-  // 鼠标拖动相关状态
+  // 榧犳爣鎷栧姩鐩稿叧鐘舵€?
   const isDragging = useRef(false)
   const startX = useRef(0)
   const scrollLeft = useRef(0)
-  // 右键菜单相关状态
+  // 鍙抽敭鑿滃崟鐩稿叧鐘舵€?
   const [contextMenuVisible, setContextMenuVisible] = useState(false)
   const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 })
   const [selectedCellValue, setSelectedCellValue] = useState('')
   const [selectedCellInfo, setSelectedCellInfo] = useState({ record: null, column: null })
   const [isMobileLongPress, setIsMobileLongPress] = useState(false)
   const longPressTimer = useRef(null)
-  // 表头右键菜单相关状态
+  // 琛ㄥご鍙抽敭鑿滃崟鐩稿叧鐘舵€?
   const [headerContextMenuVisible, setHeaderContextMenuVisible] = useState(false)
   const [headerContextMenuPosition, setHeaderContextMenuPosition] = useState({ x: 0, y: 0 })
   const [selectedHeaderColumn, setSelectedHeaderColumn] = useState(null)
-  // 存储哪些列需要显示字符长度列，格式：{ tableId: { columnKey: true/false } }
+  // 瀛樺偍鍝簺鍒楅渶瑕佹樉绀哄瓧绗﹂暱搴﹀垪锛屾牸寮忥細{ tableId: { columnKey: true/false } }
   const [showCharacterLengthColumns, setShowCharacterLengthColumns] = useState(() => {
-    // 从localStorage恢复状态
+    // 浠巐ocalStorage鎭㈠鐘舵€?
     const saved = localStorage.getItem('showCharacterLengthColumns')
     return saved ? JSON.parse(saved) : {}
   })
-  // 链接网页功能相关状态
+  // 閾炬帴缃戦〉鍔熻兘鐩稿叧鐘舵€?
   const [linkModalVisible, setLinkModalVisible] = useState(false)
   const [linkUrl, setLinkUrl] = useState('')
-  // 保存当前正在编辑链接的单元格信息
+  // 淇濆瓨褰撳墠姝ｅ湪缂栬緫閾炬帴鐨勫崟鍏冩牸淇℃伅
   const [currentEditingLink, setCurrentEditingLink] = useState({ record: null, column: null })
   
-  // 链接到表格功能相关状态
+  // 閾炬帴鍒拌〃鏍煎姛鑳界浉鍏崇姸鎬?
   const [linkToTableModalVisible, setLinkToTableModalVisible] = useState(false)
   const [tablesList, setTablesList] = useState([])
   const [selectedTargetTable, setSelectedTargetTable] = useState(null)
@@ -69,17 +70,17 @@ const MultiSelectDelete = ({
   const [selectedTargetRow, setSelectedTargetRow] = useState(null)
   const [tablesLoading, setTablesLoading] = useState(false)
   const [targetTableLoading, setTargetTableLoading] = useState(false)
-  // 分页相关状态
+  // 鍒嗛〉鐩稿叧鐘舵€?
   const [targetTableCurrentPage, setTargetTableCurrentPage] = useState(1)
   const [targetTablePageSize, setTargetTablePageSize] = useState(20)
   const [targetTableTotal, setTargetTableTotal] = useState(0)
   
-  // 使用TableContext获取表格数据
+  // 浣跨敤TableContext鑾峰彇琛ㄦ牸鏁版嵁
   const tableContext = useContext(TableContext)
   const tables = tableContext?.tables || []
   const fetchTables = tableContext?.fetchTables || (() => {})
   
-  // 更新数据索引映射
+  // 鏇存柊鏁版嵁绱㈠紩鏄犲皠
   useEffect(() => {
     const map = new Map()
     dataSource.forEach((item, index) => {
@@ -88,11 +89,11 @@ const MultiSelectDelete = ({
     dataIndexMap.current = map
   }, [dataSource, rowKey])
   
-  // 获取表格列表
+  // 鑾峰彇琛ㄦ牸鍒楄〃
   const fetchTablesList = async () => {
     try {
       setTablesLoading(true)
-      // 如果上下文中没有表格数据，直接从API获取
+      // 濡傛灉涓婁笅鏂囦腑娌℃湁琛ㄦ牸鏁版嵁锛岀洿鎺ヤ粠API鑾峰彇
       if (tables.length === 0) {
         const response = await axios.get('/api/v1/tables')
         if (response.data.code === 200) {
@@ -102,24 +103,24 @@ const MultiSelectDelete = ({
           setTablesList([])
         }
       } else {
-        // 使用上下文中的表格数据
+        // 浣跨敤涓婁笅鏂囦腑鐨勮〃鏍兼暟鎹?
         setTablesList(tables)
       }
     } catch (error) {
-      console.error('获取表格列表失败:', error)
-      message.error('获取表格列表失败，请重试')
+      console.error('鑾峰彇琛ㄦ牸鍒楄〃澶辫触:', error)
+      message.error('鑾峰彇琛ㄦ牸鍒楄〃澶辫触锛岃閲嶈瘯')
       setTablesList([])
     } finally {
       setTablesLoading(false)
     }
   }
   
-  // 获取目标表格数据
+  // 鑾峰彇鐩爣琛ㄦ牸鏁版嵁
   const fetchTargetTableData = async (tableId, page = 1, pageSize = 20) => {
     try {
       setTargetTableLoading(true)
       
-      // 获取目标表格详情，包括列配置
+      // 鑾峰彇鐩爣琛ㄦ牸璇︽儏锛屽寘鎷垪閰嶇疆
       const tableDetailResponse = await axios.get(`/api/v1/tables/${tableId}`)
       let tableColumns = []
       if (tableDetailResponse.data.code === 200) {
@@ -127,7 +128,7 @@ const MultiSelectDelete = ({
         setTargetTableColumns(tableColumns)
       }
       
-      // 获取目标表格数据
+      // 鑾峰彇鐩爣琛ㄦ牸鏁版嵁
       const dataResponse = await axios.get(`/api/v1/tables/${tableId}/data`, {
         params: {
           page,
@@ -146,8 +147,8 @@ const MultiSelectDelete = ({
         setTargetTableTotal(0)
       }
     } catch (error) {
-      console.error('获取目标表格数据失败:', error)
-      message.error('获取目标表格数据失败，请重试')
+      console.error('鑾峰彇鐩爣琛ㄦ牸鏁版嵁澶辫触:', error)
+      message.error('鑾峰彇鐩爣琛ㄦ牸鏁版嵁澶辫触锛岃閲嶈瘯')
       setTargetTableData([])
       setTargetTableTotal(0)
     } finally {
@@ -155,7 +156,7 @@ const MultiSelectDelete = ({
     }
   }
   
-  // 清除长按定时器
+  // 娓呴櫎闀挎寜瀹氭椂鍣?
   useEffect(() => {
     return () => {
       if (longPressTimer.current) {
@@ -164,12 +165,12 @@ const MultiSelectDelete = ({
     }
   }, [])
   
-  // 添加PC端鼠标拖动平移表格功能
+  // 娣诲姞PC绔紶鏍囨嫋鍔ㄥ钩绉昏〃鏍煎姛鑳?
   useEffect(() => {
     const handleMouseDown = (e) => {
-      // 只在PC端且拖动容器存在时启用拖动
-      if (tableContainerRef.current && e.button === 0) { // 只响应左键
-        // 检查表格是否可滚动
+      // 鍙湪PC绔笖鎷栧姩瀹瑰櫒瀛樺湪鏃跺惎鐢ㄦ嫋鍔?
+      if (tableContainerRef.current && e.button === 0) { // 鍙搷搴斿乏閿?
+        // 妫€鏌ヨ〃鏍兼槸鍚﹀彲婊氬姩
         const container = tableContainerRef.current
         if (container.scrollWidth > container.clientWidth) {
           isDragging.current = true
@@ -186,7 +187,7 @@ const MultiSelectDelete = ({
       
       e.preventDefault()
       const x = e.pageX - tableContainerRef.current.offsetLeft
-      const walk = (x - startX.current) * 1.5 // 拖动速度
+      const walk = (x - startX.current) * 1.5 // 鎷栧姩閫熷害
       tableContainerRef.current.scrollLeft = scrollLeft.current - walk
     }
     
@@ -197,7 +198,7 @@ const MultiSelectDelete = ({
       }
     }
     
-    // 添加全局事件监听，确保鼠标移动时即使光标离开容器也能继续拖动
+    // 娣诲姞鍏ㄥ眬浜嬩欢鐩戝惉锛岀‘淇濋紶鏍囩Щ鍔ㄦ椂鍗充娇鍏夋爣绂诲紑瀹瑰櫒涔熻兘缁х画鎷栧姩
     const handleGlobalMouseUp = () => {
       isDragging.current = false
       if (tableContainerRef.current) {
@@ -211,67 +212,67 @@ const MultiSelectDelete = ({
       e.preventDefault()
       const container = tableContainerRef.current
       const x = e.pageX - container.offsetLeft
-      const walk = (x - startX.current) * 1.5 // 拖动速度
+      const walk = (x - startX.current) * 1.5 // 鎷栧姩閫熷害
       container.scrollLeft = scrollLeft.current - walk
     }
     
-    // 添加事件监听
+    // 娣诲姞浜嬩欢鐩戝惉
     if (tableContainerRef.current) {
       const container = tableContainerRef.current
-      // 设置初始鼠标样式
+      // 璁剧疆鍒濆榧犳爣鏍峰紡
       container.style.cursor = 'grab'
       
-      // 添加本地事件监听
+      // 娣诲姞鏈湴浜嬩欢鐩戝惉
       container.addEventListener('mousedown', handleMouseDown)
       container.addEventListener('mousemove', handleMouseMove)
       container.addEventListener('mouseup', handleMouseUp)
       
-      // 添加全局事件监听
+      // 娣诲姞鍏ㄥ眬浜嬩欢鐩戝惉
       document.addEventListener('mouseup', handleGlobalMouseUp)
       document.addEventListener('mousemove', handleGlobalMouseMove)
     }
     
-    // 清理事件监听
+    // 娓呯悊浜嬩欢鐩戝惉
     return () => {
       if (tableContainerRef.current) {
         const container = tableContainerRef.current
-        // 移除本地事件监听
+        // 绉婚櫎鏈湴浜嬩欢鐩戝惉
         container.removeEventListener('mousedown', handleMouseDown)
         container.removeEventListener('mousemove', handleMouseMove)
         container.removeEventListener('mouseup', handleMouseUp)
       }
       
-      // 移除全局事件监听
+      // 绉婚櫎鍏ㄥ眬浜嬩欢鐩戝惉
       document.removeEventListener('mouseup', handleGlobalMouseUp)
       document.removeEventListener('mousemove', handleGlobalMouseMove)
     }
   }, [tableContainerRef])
   
-  // 处理链接到表格
+  // 澶勭悊閾炬帴鍒拌〃鏍?
   const handleLinkToTable = () => {
-    // 保存当前编辑的单元格信息
+    // 淇濆瓨褰撳墠缂栬緫鐨勫崟鍏冩牸淇℃伅
     const { record, column } = selectedCellInfo
     setCurrentEditingLink({ record, column })
     
-    // 清空之前的选择
+    // 娓呯┖涔嬪墠鐨勯€夋嫨
     setSelectedTargetTable(null)
     setTargetTableData([])
     setSelectedTargetRow(null)
     
-    // 关闭右键菜单
+    // 鍏抽棴鍙抽敭鑿滃崟
     setContextMenuVisible(false)
     setIsMobileLongPress(false)
     
-    // 打开链接到表格的模态框
+    // 鎵撳紑閾炬帴鍒拌〃鏍肩殑妯℃€佹
     setLinkToTableModalVisible(true)
     
-    // 加载表格列表
+    // 鍔犺浇琛ㄦ牸鍒楄〃
     fetchTablesList()
   }
   
-  // 处理链接到网页
+  // 澶勭悊閾炬帴鍒扮綉椤?
   const handleLinkToWeb = () => {
-    // 只保存必要的信息，避免循环引用
+    // 鍙繚瀛樺繀瑕佺殑淇℃伅锛岄伩鍏嶅惊鐜紩鐢?
     const { record, column } = selectedCellInfo
     const safeRecord = {
       [rowKey]: record[rowKey],
@@ -280,34 +281,34 @@ const MultiSelectDelete = ({
     }
     setCurrentEditingLink({ record: safeRecord, column })
     setLinkModalVisible(true)
-    setLinkUrl('') // 重置输入框
+    setLinkUrl('') // 閲嶇疆杈撳叆妗?
     setContextMenuVisible(false)
     setIsMobileLongPress(false)
   }
   
-  // 处理链接保存
+  // 澶勭悊閾炬帴淇濆瓨
   const handleLinkSave = async () => {
     if (!linkUrl.trim()) {
-      message.error('请输入有效的网址')
+      message.error('璇疯緭鍏ユ湁鏁堢殑缃戝潃')
       return
     }
     
-    // 验证网址格式
+    // 楠岃瘉缃戝潃鏍煎紡
     let finalUrl = linkUrl
     try {
       new URL(finalUrl)
     } catch (e) {
-      // 如果不是完整URL，尝试添加https://前缀
+      // 濡傛灉涓嶆槸瀹屾暣URL锛屽皾璇曟坊鍔爃ttps://鍓嶇紑
       try {
         new URL(`https://${linkUrl}`)
         finalUrl = `https://${linkUrl}`
       } catch (e) {
-        message.error('请输入有效的网址格式')
+        message.error('璇疯緭鍏ユ湁鏁堢殑缃戝潃鏍煎紡')
         return
       }
     }
     
-    // 获取当前正在编辑的记录和列信息
+    // 鑾峰彇褰撳墠姝ｅ湪缂栬緫鐨勮褰曞拰鍒椾俊鎭?
     const { record, column } = currentEditingLink
     if (!record || !column) {
       message.error('无效的编辑状态')
@@ -315,102 +316,102 @@ const MultiSelectDelete = ({
     }
     
     try {
-      // 获取必要的ID信息，确保使用基本类型
+      // 鑾峰彇蹇呰鐨処D淇℃伅锛岀‘淇濅娇鐢ㄥ熀鏈被鍨?
       const recordId = String(record[rowKey])
       const tableId = String(record.table_id)
       
-      // 直接使用selectedCellInfo中的column，避免使用可能有循环引用的column对象
+      // 鐩存帴浣跨敤selectedCellInfo涓殑column锛岄伩鍏嶄娇鐢ㄥ彲鑳芥湁寰幆寮曠敤鐨刢olumn瀵硅薄
       const originalColumn = selectedCellInfo.column
       if (!originalColumn) {
-        message.error('无效的列信息')
+        message.error('鏃犳晥鐨勫垪淇℃伅')
         return
       }
       
-      // 获取列名：确保只使用字符串
+      // 鑾峰彇鍒楀悕锛氱‘淇濆彧浣跨敤瀛楃涓?
       let columnKey = originalColumn.key || ''
       if (!columnKey && originalColumn.dataIndex) {
         if (Array.isArray(originalColumn.dataIndex) && originalColumn.dataIndex.length > 1) {
-          // 对于嵌套数据索引，如['data', 'column_name']，取第二个元素
+          // 瀵逛簬宓屽鏁版嵁绱㈠紩锛屽['data', 'column_name']锛屽彇绗簩涓厓绱?
           columnKey = originalColumn.dataIndex[1]
         } else if (typeof originalColumn.dataIndex === 'string') {
-          // 对于直接字符串索引，直接使用
+          // 瀵逛簬鐩存帴瀛楃涓茬储寮曪紝鐩存帴浣跨敤
           columnKey = originalColumn.dataIndex
         } else {
-          // 对于其他情况，使用列标题作为备选
+          // 瀵逛簬鍏朵粬鎯呭喌锛屼娇鐢ㄥ垪鏍囬浣滀负澶囬€?
           columnKey = originalColumn.title
         }
       }
       
-      // 确保columnKey是字符串
+      // 纭繚columnKey鏄瓧绗︿覆
       columnKey = String(columnKey)
       
-      // 创建一个全新的数据对象，避免继承任何循环引用
+      // 鍒涘缓涓€涓叏鏂扮殑鏁版嵁瀵硅薄锛岄伩鍏嶇户鎵夸换浣曞惊鐜紩鐢?
       const newData = {}
       
-      // 复制现有数据，确保只复制基本类型
+      // 澶嶅埗鐜版湁鏁版嵁锛岀‘淇濆彧澶嶅埗鍩烘湰绫诲瀷
       if (typeof record.data === 'object' && record.data !== null) {
         for (const [key, value] of Object.entries(record.data)) {
-          // 只复制基本类型或简单对象
+          // 鍙鍒跺熀鏈被鍨嬫垨绠€鍗曞璞?
           if (value === null || typeof value !== 'object') {
             newData[key] = value
           } else if (typeof value === 'object' && ('_text' in value && '_link' in value)) {
-            // 如果已经是链接数据，保留
+            // 濡傛灉宸茬粡鏄摼鎺ユ暟鎹紝淇濈暀
             newData[key] = { ...value }
           } else {
-            // 对于其他对象，转换为字符串
+            // 瀵逛簬鍏朵粬瀵硅薄锛岃浆鎹负瀛楃涓?
             newData[key] = String(value)
           }
         }
       }
       
-      // 使用特殊格式保存链接信息：只使用基本类型
+      // 浣跨敤鐗规畩鏍煎紡淇濆瓨閾炬帴淇℃伅锛氬彧浣跨敤鍩烘湰绫诲瀷
       newData[columnKey] = {
         _text: String(selectedCellValue),
         _link: String(finalUrl)
       }
       
-      // 构建API URL
+      // 鏋勫缓API URL
       const apiUrl = `/api/v1/tables/${tableId}/data/${recordId}`
       
-      // 构建请求头
+      // 鏋勫缓璇锋眰澶?
       const headers = {
         'Content-Type': 'application/json'
       }
       
-      // 添加认证token
+      // 娣诲姞璁よ瘉token
       const token = localStorage.getItem('token')
       if (token) {
         headers['Authorization'] = `Bearer ${token}`
       }
       
-      // 构建请求体，确保只包含基本类型
+      // 鏋勫缓璇锋眰浣擄紝纭繚鍙寘鍚熀鏈被鍨?
       const requestBody = {
         data: newData
       }
       
-      // 使用fetch API发送请求
+      // 浣跨敤fetch API鍙戦€佽姹?
       const response = await fetch(apiUrl, {
         method: 'PUT',
         headers: headers,
         body: JSON.stringify(requestBody)
       })
       
-      // 检查响应状态
+      // 妫€鏌ュ搷搴旂姸鎬?
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`)
       }
       
-      // 解析响应数据
+      // 瑙ｆ瀽鍝嶅簲鏁版嵁
       const result = await response.json()
       
       if (result.code === 200) {
-        message.success('链接设置成功')
+        message.success('閾炬帴璁剧疆鎴愬姛')
         setLinkModalVisible(false)
         
-        // 刷新页面获取最新数据
+        // 鍒锋柊椤甸潰鑾峰彇鏈€鏂版暟鎹?
         window.location.reload()
       } else {
-        message.error(result.message || '链接设置失败')
+        message.error(result.message || '閾炬帴璁剧疆澶辫触')
       }
     } catch (error) {
       console.error('Error saving link:', error)
@@ -418,14 +419,14 @@ const MultiSelectDelete = ({
     }
   }
   
-  // 处理链接取消
+  // 澶勭悊閾炬帴鍙栨秷
   const handleLinkCancel = () => {
     setLinkModalVisible(false)
   }
   
-  // 处理取消链接
+  // 澶勭悊鍙栨秷閾炬帴
   const handleUnlink = async () => {
-    // 获取当前正在编辑的记录和列信息
+    // 鑾峰彇褰撳墠姝ｅ湪缂栬緫鐨勮褰曞拰鍒椾俊鎭?
     const { record, column } = selectedCellInfo
     if (!record || !column) {
       message.error('无效的编辑状态')
@@ -433,86 +434,86 @@ const MultiSelectDelete = ({
     }
     
     try {
-      // 获取必要的ID信息，确保使用基本类型
+      // 鑾峰彇蹇呰鐨処D淇℃伅锛岀‘淇濅娇鐢ㄥ熀鏈被鍨?
       const recordId = String(record[rowKey])
       const tableId = String(record.table_id)
       
-      // 直接使用selectedCellInfo中的column，避免使用可能有循环引用的column对象
+      // 鐩存帴浣跨敤selectedCellInfo涓殑column锛岄伩鍏嶄娇鐢ㄥ彲鑳芥湁寰幆寮曠敤鐨刢olumn瀵硅薄
       const originalColumn = selectedCellInfo.column
       if (!originalColumn) {
-        message.error('无效的列信息')
+        message.error('鏃犳晥鐨勫垪淇℃伅')
         return
       }
       
-      // 获取列名：确保只使用字符串
+      // 鑾峰彇鍒楀悕锛氱‘淇濆彧浣跨敤瀛楃涓?
       let columnKey = originalColumn.key || ''
       if (!columnKey && originalColumn.dataIndex) {
         if (Array.isArray(originalColumn.dataIndex) && originalColumn.dataIndex.length > 1) {
-          // 对于嵌套数据索引，如['data', 'column_name']，取第二个元素
+          // 瀵逛簬宓屽鏁版嵁绱㈠紩锛屽['data', 'column_name']锛屽彇绗簩涓厓绱?
           columnKey = originalColumn.dataIndex[1]
         } else if (typeof originalColumn.dataIndex === 'string') {
-          // 对于直接字符串索引，直接使用
+          // 瀵逛簬鐩存帴瀛楃涓茬储寮曪紝鐩存帴浣跨敤
           columnKey = originalColumn.dataIndex
         } else {
-          // 对于其他情况，使用列标题作为备选
+          // 瀵逛簬鍏朵粬鎯呭喌锛屼娇鐢ㄥ垪鏍囬浣滀负澶囬€?
           columnKey = originalColumn.title
         }
       }
       
-      // 确保columnKey是字符串
+      // 纭繚columnKey鏄瓧绗︿覆
       columnKey = String(columnKey)
       
-      // 创建一个全新的数据对象，避免继承任何循环引用
+      // 鍒涘缓涓€涓叏鏂扮殑鏁版嵁瀵硅薄锛岄伩鍏嶇户鎵夸换浣曞惊鐜紩鐢?
       const newData = { ...record.data }
       
-      // 对于链接对象，只保留文本部分，移除链接信息
+      // 瀵逛簬閾炬帴瀵硅薄锛屽彧淇濈暀鏂囨湰閮ㄥ垎锛岀Щ闄ら摼鎺ヤ俊鎭?
       if (typeof newData[columnKey] === 'object' && newData[columnKey] !== null && newData[columnKey]._text) {
         newData[columnKey] = newData[columnKey]._text
       }
       
-      // 构建API URL
+      // 鏋勫缓API URL
       const apiUrl = `/api/v1/tables/${tableId}/data/${recordId}`
       
-      // 构建请求头
+      // 鏋勫缓璇锋眰澶?
       const headers = {
         'Content-Type': 'application/json'
       }
       
-      // 添加认证token
+      // 娣诲姞璁よ瘉token
       const token = localStorage.getItem('token')
       if (token) {
         headers['Authorization'] = `Bearer ${token}`
       }
       
-      // 构建请求体，确保只包含基本类型
+      // 鏋勫缓璇锋眰浣擄紝纭繚鍙寘鍚熀鏈被鍨?
       const requestBody = {
         data: newData
       }
       
-      // 使用fetch API发送请求
+      // 浣跨敤fetch API鍙戦€佽姹?
       const response = await fetch(apiUrl, {
         method: 'PUT',
         headers: headers,
         body: JSON.stringify(requestBody)
       })
       
-      // 检查响应状态
+      // 妫€鏌ュ搷搴旂姸鎬?
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`)
       }
       
-      // 解析响应数据
+      // 瑙ｆ瀽鍝嶅簲鏁版嵁
       const result = await response.json()
       
       if (result.code === 200) {
-        message.success('取消链接成功')
+        message.success('鍙栨秷閾炬帴鎴愬姛')
         setContextMenuVisible(false)
         setIsMobileLongPress(false)
         
-        // 刷新页面获取最新数据
+        // 鍒锋柊椤甸潰鑾峰彇鏈€鏂版暟鎹?
         window.location.reload()
       } else {
-        message.error(result.message || '取消链接失败')
+        message.error(result.message || '鍙栨秷閾炬帴澶辫触')
       }
     } catch (error) {
       console.error('Error unlinking:', error)
@@ -520,9 +521,9 @@ const MultiSelectDelete = ({
     }
   }
   
-  // 处理链接到表格保存
+  // 澶勭悊閾炬帴鍒拌〃鏍间繚瀛?
   const handleLinkToTableSave = async () => {
-    // 获取当前正在编辑的记录和列信息
+    // 鑾峰彇褰撳墠姝ｅ湪缂栬緫鐨勮褰曞拰鍒椾俊鎭?
     const { record, column } = currentEditingLink
     if (!record || !column) {
       message.error('无效的编辑状态')
@@ -530,32 +531,32 @@ const MultiSelectDelete = ({
     }
     
     try {
-      // 获取必要的ID信息，确保使用基本类型
+      // 鑾峰彇蹇呰鐨処D淇℃伅锛岀‘淇濅娇鐢ㄥ熀鏈被鍨?
       const recordId = String(record[rowKey])
       const tableId = String(record.table_id)
       
-      // 获取列名：确保只使用字符串
+      // 鑾峰彇鍒楀悕锛氱‘淇濆彧浣跨敤瀛楃涓?
       let columnKey = column.key || ''
       if (!columnKey && column.dataIndex) {
         if (Array.isArray(column.dataIndex) && column.dataIndex.length > 1) {
-          // 对于嵌套数据索引，如['data', 'column_name']，取第二个元素
+          // 瀵逛簬宓屽鏁版嵁绱㈠紩锛屽['data', 'column_name']锛屽彇绗簩涓厓绱?
           columnKey = column.dataIndex[1]
         } else if (typeof column.dataIndex === 'string') {
-          // 对于直接字符串索引，直接使用
+          // 瀵逛簬鐩存帴瀛楃涓茬储寮曪紝鐩存帴浣跨敤
           columnKey = column.dataIndex
         } else {
-          // 对于其他情况，使用列标题作为备选
+          // 瀵逛簬鍏朵粬鎯呭喌锛屼娇鐢ㄥ垪鏍囬浣滀负澶囬€?
           columnKey = column.title
         }
       }
       
-      // 确保columnKey是字符串
+      // 纭繚columnKey鏄瓧绗︿覆
       columnKey = String(columnKey)
       
-      // 获取当前单元格的值
+      // 鑾峰彇褰撳墠鍗曞厓鏍肩殑鍊?
       let currentValue = record.data[columnKey]
       
-      // 获取当前显示文本
+      // 鑾峰彇褰撳墠鏄剧ず鏂囨湰
       let displayText
       if (typeof currentValue === 'object' && currentValue !== null && currentValue._text) {
         displayText = currentValue._text
@@ -563,56 +564,56 @@ const MultiSelectDelete = ({
         displayText = String(currentValue)
       }
       
-      // 创建链接对象，格式为 { _text: '显示文本', _link: '链接信息' }
-      // 链接信息格式：table:{targetTableId}:{targetRowId}
+      // 鍒涘缓閾炬帴瀵硅薄锛屾牸寮忎负 { _text: '鏄剧ず鏂囨湰', _link: '閾炬帴淇℃伅' }
+      // 閾炬帴淇℃伅鏍煎紡锛歵able:{targetTableId}:{targetRowId}
       const linkObject = {
         _text: displayText,
         _link: `table:${selectedTargetTable}:${selectedTargetRow}`
       }
       
-      // 创建一个全新的数据对象，避免继承任何循环引用
+      // 鍒涘缓涓€涓叏鏂扮殑鏁版嵁瀵硅薄锛岄伩鍏嶇户鎵夸换浣曞惊鐜紩鐢?
       const newData = { ...record.data }
       newData[columnKey] = linkObject
       
-      // 构建API URL
+      // 鏋勫缓API URL
       const apiUrl = `/api/v1/tables/${tableId}/data/${recordId}`
       
-      // 构建请求头
+      // 鏋勫缓璇锋眰澶?
       const headers = {
         'Content-Type': 'application/json'
       }
       
-      // 添加认证token
+      // 娣诲姞璁よ瘉token
       const token = localStorage.getItem('token')
       if (token) {
         headers['Authorization'] = `Bearer ${token}`
       }
       
-      // 构建请求体，确保只包含基本类型
+      // 鏋勫缓璇锋眰浣擄紝纭繚鍙寘鍚熀鏈被鍨?
       const requestBody = {
         data: newData
       }
       
-      // 使用fetch API发送请求
+      // 浣跨敤fetch API鍙戦€佽姹?
       const response = await fetch(apiUrl, {
         method: 'PUT',
         headers: headers,
         body: JSON.stringify(requestBody)
       })
       
-      // 检查响应状态
+      // 妫€鏌ュ搷搴旂姸鎬?
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`)
       }
       
-      // 解析响应数据
+      // 瑙ｆ瀽鍝嶅簲鏁版嵁
       const result = await response.json()
       
       if (result.code === 200) {
         message.success('链接到表格成功')
-        // 关闭模态框
+        // 鍏抽棴妯℃€佹
         setLinkToTableModalVisible(false)
-        // 刷新页面获取最新数据
+        // 鍒锋柊椤甸潰鑾峰彇鏈€鏂版暟鎹?
         window.location.reload()
       } else {
         message.error(result.message || '链接到表格失败')
@@ -623,42 +624,42 @@ const MultiSelectDelete = ({
     }
   }
   
-  // 处理链接到表格取消
+  // 澶勭悊閾炬帴鍒拌〃鏍煎彇娑?
   const handleLinkToTableCancel = () => {
     setLinkToTableModalVisible(false)
   }
   
-  // 处理复制功能
+  // 澶勭悊澶嶅埗鍔熻兘
   const handleCopy = async () => {
     try {
-      // 获取当前选中的单元格值
+      // 鑾峰彇褰撳墠閫変腑鐨勫崟鍏冩牸鍊?
       let copyText = '';
       
-      // 处理不同类型的值
+      // 澶勭悊涓嶅悓绫诲瀷鐨勫€?
       if (typeof selectedCellValue === 'object' && selectedCellValue !== null) {
-        // 如果是链接对象，只复制文本部分
+        // 濡傛灉鏄摼鎺ュ璞★紝鍙鍒舵枃鏈儴鍒?
         if (selectedCellValue._text) {
           copyText = selectedCellValue._text;
         } else {
-          // 其他对象类型转换为字符串
+          // 鍏朵粬瀵硅薄绫诲瀷杞崲涓哄瓧绗︿覆
           copyText = JSON.stringify(selectedCellValue);
         }
       } else if (selectedCellValue !== null && selectedCellValue !== undefined) {
-        // 基本类型直接转换为字符串
+        // 鍩烘湰绫诲瀷鐩存帴杞崲涓哄瓧绗︿覆
         copyText = String(selectedCellValue);
       } else {
-        // 空值处理
+        // 绌哄€煎鐞?
         copyText = '';
       }
       
-      // 使用Clipboard API复制文本
+      // 浣跨敤Clipboard API澶嶅埗鏂囨湰
       await navigator.clipboard.writeText(copyText);
       
-      // 显示复制成功提示
+      // 鏄剧ず澶嶅埗鎴愬姛鎻愮ず
       message.success('已复制', 1); // 1秒后自动关闭
     } catch (err) {
-      console.error('复制失败:', err);
-      // 降级方案：使用传统的document.execCommand('copy')
+      console.error('澶嶅埗澶辫触:', err);
+      // 闄嶇骇鏂规锛氫娇鐢ㄤ紶缁熺殑document.execCommand('copy')
       try {
         const textArea = document.createElement('textarea');
         let copyText = '';
@@ -683,17 +684,17 @@ const MultiSelectDelete = ({
         
         message.success('已复制', 1);
       } catch (fallbackErr) {
-        console.error('复制失败（降级方案）:', fallbackErr);
+        console.error('澶嶅埗澶辫触锛堥檷绾ф柟妗堬級:', fallbackErr);
         message.error('复制失败，请手动选择并复制', 2);
       }
     }
     
-    // 关闭右键菜单
+    // 鍏抽棴鍙抽敭鑿滃崟
     setContextMenuVisible(false);
     setIsMobileLongPress(false);
   };
   
-  // 右键菜单内容
+  // 鍙抽敭鑿滃崟鍐呭
   const contextMenuItems = [
     {
       label: '复制',
@@ -714,16 +715,16 @@ const MultiSelectDelete = ({
       onClick: handleLinkToWeb
     },
     {
-      label: '取消链接',
+      label: '解除链接',
       key: 'unlink',
       icon: <LinkOutlined />,
       onClick: handleUnlink,
-      // 只有当selectedCellValue是对象且包含_link属性时才显示
+      // 鍙湁褰搒electedCellValue鏄璞′笖鍖呭惈_link灞炴€ф椂鎵嶆樉绀?
       disabled: !(typeof selectedCellValue === 'object' && selectedCellValue !== null && selectedCellValue._link)
     }
   ]
   
-  // 处理表头右键点击事件
+  // 澶勭悊琛ㄥご鍙抽敭鐐瑰嚮浜嬩欢
   const handleHeaderContextMenu = (e, column) => {
     e.preventDefault()
     setSelectedHeaderColumn(column)
@@ -731,7 +732,7 @@ const MultiSelectDelete = ({
     setHeaderContextMenuVisible(true)
   }
   
-  // 处理表头菜单点击事件
+  // 澶勭悊琛ㄥご鑿滃崟鐐瑰嚮浜嬩欢
   const handleHeaderMenuClick = (e) => {
     const { key } = e
     if (key === 'show-character-length') {
@@ -740,7 +741,7 @@ const MultiSelectDelete = ({
     setHeaderContextMenuVisible(false)
   }
   
-  // 表头右键菜单内容
+  // 琛ㄥご鍙抽敭鑿滃崟鍐呭
   const headerContextMenuItems = [
     {
       label: '显示字符长度',
@@ -749,7 +750,7 @@ const MultiSelectDelete = ({
     }
   ]
   
-  // 处理右键点击事件
+  // 澶勭悊鍙抽敭鐐瑰嚮浜嬩欢
   const handleContextMenu = (e, value, record, column) => {
     e.preventDefault()
     setSelectedCellValue(value)
@@ -758,43 +759,43 @@ const MultiSelectDelete = ({
     setContextMenuVisible(true)
   }
   
-  // 处理长按开始
+  // 澶勭悊闀挎寜寮€濮?
   const handleLongPressStart = (e, value, record, column) => {
     setSelectedCellValue(value)
     setSelectedCellInfo({ record, column })
     longPressTimer.current = setTimeout(() => {
       setIsMobileLongPress(true)
-    }, 500) // 500ms 长按触发
+    }, 500) // 500ms 闀挎寜瑙﹀彂
   }
   
-  // 处理长按结束
+  // 澶勭悊闀挎寜缁撴潫
   const handleLongPressEnd = () => {
     if (longPressTimer.current) {
       clearTimeout(longPressTimer.current)
     }
   }
   
-  // 处理点击事件，关闭菜单
+  // 澶勭悊鐐瑰嚮浜嬩欢锛屽叧闂彍鍗?
   const handleClick = () => {
     setContextMenuVisible(false)
     setHeaderContextMenuVisible(false)
     setIsMobileLongPress(false)
   }
   
-  // 处理显示/隐藏字符长度列
+  // 澶勭悊鏄剧ず/闅愯棌瀛楃闀垮害鍒?
   const handleToggleCharacterLength = () => {
     if (!selectedHeaderColumn) return
     
-    // 获取表格ID
+    // 鑾峰彇琛ㄦ牸ID
     const tableId = dataSource.length > 0 ? dataSource[0].table_id : 'default'
-    // 获取当前列的key
+    // 鑾峰彇褰撳墠鍒楃殑key
     const columnKey = selectedHeaderColumn.key || selectedHeaderColumn.dataIndex
     
-    // 更新状态
+    // 鏇存柊鐘舵€?
     setShowCharacterLengthColumns(prev => {
-      // 确保每个表格都有独立的配置
+      // 纭繚姣忎釜琛ㄦ牸閮芥湁鐙珛鐨勯厤缃?
       const tableConfig = prev[tableId] || {}
-      // 切换状态
+      // 鍒囨崲鐘舵€?
       const newConfig = {
         ...tableConfig,
         [columnKey]: !tableConfig[columnKey]
@@ -805,14 +806,14 @@ const MultiSelectDelete = ({
         [tableId]: newConfig
       }
       
-      // 保存到localStorage
+      // 淇濆瓨鍒發ocalStorage
       localStorage.setItem('showCharacterLengthColumns', JSON.stringify(newState))
       
       return newState
     })
   }
   
-  // 添加全局点击事件监听，用于关闭菜单
+  // 娣诲姞鍏ㄥ眬鐐瑰嚮浜嬩欢鐩戝惉锛岀敤浜庡叧闂彍鍗?
   useEffect(() => {
     document.addEventListener('click', handleClick)
     return () => {
@@ -820,14 +821,14 @@ const MultiSelectDelete = ({
     }
   }, [])
   
-  // 计算文本宽度的辅助函数
+  // 璁＄畻鏂囨湰瀹藉害鐨勮緟鍔╁嚱鏁?
   const getTextWidth = (text) => {
-    // 创建一个临时元素来测量文本宽度
+    // 鍒涘缓涓€涓复鏃跺厓绱犳潵娴嬮噺鏂囨湰瀹藉害
     const tempElement = document.createElement('span')
     tempElement.style.visibility = 'hidden'
     tempElement.style.position = 'absolute'
     tempElement.style.whiteSpace = 'nowrap'
-    tempElement.style.fontSize = '13px' // 与表格字体大小一致
+    tempElement.style.fontSize = '13px' // 涓庤〃鏍煎瓧浣撳ぇ灏忎竴鑷?
     tempElement.style.fontFamily = 'Arial, sans-serif'
     tempElement.textContent = text
     document.body.appendChild(tempElement)
@@ -838,7 +839,7 @@ const MultiSelectDelete = ({
     return width
   }
   
-  // 计算数据长度，考虑不同数据类型
+  // 璁＄畻鏁版嵁闀垮害锛岃€冭檻涓嶅悓鏁版嵁绫诲瀷
   const calculateDataLength = (value) => {
     if (value === null || value === undefined) {
       return 0
@@ -846,7 +847,7 @@ const MultiSelectDelete = ({
     
     let text
     if (typeof value === 'object') {
-      // 如果是包含链接信息的对象 { _text: '原始文本', _link: '链接URL' }
+      // 濡傛灉鏄寘鍚摼鎺ヤ俊鎭殑瀵硅薄 { _text: '鍘熷鏂囨湰', _link: '閾炬帴URL' }
       if (value._text && value._link) {
         text = String(value._text)
       } else {
@@ -856,43 +857,43 @@ const MultiSelectDelete = ({
       text = String(value)
     }
     
-    // 计算文本宽度，考虑中文字符占两倍宽度
+    // 璁＄畻鏂囨湰瀹藉害锛岃€冭檻涓枃瀛楃鍗犱袱鍊嶅搴?
     const chineseChars = (text.match(/[\u4e00-\u9fa5]/g) || []).length
     const otherChars = text.length - chineseChars
     
-    // 中文字符占16px，其他字符占8px，加上一些间距
+    // 涓枃瀛楃鍗?6px锛屽叾浠栧瓧绗﹀崰8px锛屽姞涓婁竴浜涢棿璺?
     return chineseChars * 16 + otherChars * 8 + 20
   }
   
-  // 计算最佳列宽
+  // 璁＄畻鏈€浣冲垪瀹?
   const calculateOptimalColumnWidths = () => {
     const newColumnWidths = {}
     
-    // 计算每列的宽度
+    // 璁＄畻姣忓垪鐨勫搴?
     columns.forEach(column => {
-      // 跳过操作列和没有dataIndex的列
-      if (!column.dataIndex || column.key === 'action' || column.title === '操作') return
+      // 璺宠繃鎿嶄綔鍒楀拰娌℃湁dataIndex鐨勫垪
+      if (!column.dataIndex || column.key === 'action' || column.title === '鎿嶄綔') return
       
       const columnKey = column.key || column.dataIndex
       
-      // 计算标题宽度
-      const titleWidth = getTextWidth(column.title) + 40 // 加上一些间距
+      // 璁＄畻鏍囬瀹藉害
+      const titleWidth = getTextWidth(column.title) + 40 // 鍔犱笂涓€浜涢棿璺?
       
-      // 检查是否为创建时间列
+      // 妫€鏌ユ槸鍚︿负鍒涘缓鏃堕棿鍒?
       const isCreateTimeColumn = [
-        '创建时间', 'createTime', 'created_at', 'create_at', '创建日期', 'date'
+        '鍒涘缓鏃堕棿', 'createTime', 'created_at', 'create_at', '鍒涘缓鏃ユ湡', 'date'
       ].includes(columnKey) || 
       [
-        '创建时间', '创建日期', '日期'
+        '鍒涘缓鏃堕棿', '鍒涘缓鏃ユ湡', '鏃ユ湡'
       ].includes(column.title)
       
-      // 计算数据宽度
+      // 璁＄畻鏁版嵁瀹藉害
       let maxDataWidth = 0
       dataSource.forEach(record => {
         let value = record
         const dataIndex = Array.isArray(column.dataIndex) ? column.dataIndex : [column.dataIndex]
         
-        // 处理嵌套路径
+        // 澶勭悊宓屽璺緞
         let found = true
         for (const key of dataIndex) {
           if (value === null || value === undefined) {
@@ -905,7 +906,7 @@ const MultiSelectDelete = ({
         if (found) {
           let displayValue = value
           
-          // 如果是创建时间列，格式化后再计算宽度
+          // 濡傛灉鏄垱寤烘椂闂村垪锛屾牸寮忓寲鍚庡啀璁＄畻瀹藉害
           if (isCreateTimeColumn) {
             displayValue = formatDateOnly(String(value))
           }
@@ -917,12 +918,12 @@ const MultiSelectDelete = ({
         }
       })
       
-      // 最佳宽度取标题宽度和数据宽度的最大值
+      // 鏈€浣冲搴﹀彇鏍囬瀹藉害鍜屾暟鎹搴︾殑鏈€澶у€?
       let optimalWidth = Math.max(titleWidth, maxDataWidth)
       
-      // 设置最小和最大宽度限制
-      optimalWidth = Math.max(optimalWidth, 100) // 最小宽度调整为100px，确保时间列有足够宽度
-      optimalWidth = Math.min(optimalWidth, 500) // 最大宽度
+      // 璁剧疆鏈€灏忓拰鏈€澶у搴﹂檺鍒?
+      optimalWidth = Math.max(optimalWidth, 100) // 鏈€灏忓搴﹁皟鏁翠负100px锛岀‘淇濇椂闂村垪鏈夎冻澶熷搴?
+      optimalWidth = Math.min(optimalWidth, 500) // 鏈€澶у搴?
       
       newColumnWidths[columnKey] = optimalWidth
     })
@@ -930,9 +931,9 @@ const MultiSelectDelete = ({
     setColumnWidths(newColumnWidths)
   }
   
-  // 监听数据变化，重新计算列宽
+  // 鐩戝惉鏁版嵁鍙樺寲锛岄噸鏂拌绠楀垪瀹?
   useEffect(() => {
-    // 添加一个小延迟，确保DOM已渲染
+    // 娣诲姞涓€涓皬寤惰繜锛岀‘淇滵OM宸叉覆鏌?
     const timer = setTimeout(() => {
       if (dataSource.length > 0) {
         calculateOptimalColumnWidths()
@@ -942,7 +943,7 @@ const MultiSelectDelete = ({
     return () => clearTimeout(timer)
   }, [dataSource, columns])
   
-  // 监听窗口大小变化，重新计算列宽
+  // 鐩戝惉绐楀彛澶у皬鍙樺寲锛岄噸鏂拌绠楀垪瀹?
   useEffect(() => {
     const handleResize = () => {
       if (dataSource.length > 0) {
@@ -954,7 +955,7 @@ const MultiSelectDelete = ({
     return () => window.removeEventListener('resize', handleResize)
   }, [dataSource, columns])
   
-  // 处理单个选择
+  // 澶勭悊鍗曚釜閫夋嫨
   const handleSingleSelect = (record, checked) => {
     const newSelectedRowKeys = [...selectedRowKeys]
     const recordKey = record[rowKey]
@@ -972,7 +973,7 @@ const MultiSelectDelete = ({
     lastClickIndex.current = dataIndexMap.current.get(recordKey)
   }
   
-  // 处理连续选择（Shift键）
+  // 澶勭悊杩炵画閫夋嫨锛圫hift閿級
   const handleRangeSelect = (record, checked, e) => {
     if (e.shiftKey && lastClickIndex.current !== -1) {
       const currentIndex = dataIndexMap.current.get(record[rowKey])
@@ -992,7 +993,7 @@ const MultiSelectDelete = ({
     }
   }
   
-  // 处理非连续选择（Ctrl/Cmd键）
+  // 澶勭悊闈炶繛缁€夋嫨锛圕trl/Cmd閿級
   const handleNonContinuousSelect = (record, checked, e) => {
     if (e.ctrlKey || e.metaKey) {
       handleSingleSelect(record, checked)
@@ -1001,29 +1002,29 @@ const MultiSelectDelete = ({
     }
   }
   
-  // 处理行选择变化
+  // 澶勭悊琛岄€夋嫨鍙樺寲
   const onSelectChange = (newSelectedRowKeys) => {
     setSelectedRowKeys(newSelectedRowKeys)
   }
   
-  // 处理删除操作
+  // 澶勭悊鍒犻櫎鎿嶄綔
   const handleDelete = () => {
     if (selectedRowKeys.length === 0) return
     
-    // 二次确认对话框
+    // 浜屾纭瀵硅瘽妗?
     confirm({
-      title: '确认删除',
+      title: '纭鍒犻櫎',
       content: '删除操作不可逆转，确定要删除选中的项目吗？',
-      okText: '确认删除',
+      okText: '纭鍒犻櫎',
       okType: 'danger',
-      cancelText: '取消',
+      cancelText: '鍙栨秷',
       onOk() {
         return new Promise((resolve, reject) => {
-          // 调用外部删除函数
+          // 璋冪敤澶栭儴鍒犻櫎鍑芥暟
           onDelete(selectedRowKeys)
             .then(() => {
-              message.success('删除成功')
-              // 重置选择状态
+              message.success('鍒犻櫎鎴愬姛')
+              // 閲嶇疆閫夋嫨鐘舵€?
               setSelectedRowKeys([])
               resolve()
             })
@@ -1034,38 +1035,35 @@ const MultiSelectDelete = ({
         })
       },
       onCancel() {
-        console.log('取消删除')
+        console.log('鍙栨秷鍒犻櫎')
       },
     })
   }
   
-  // 取消选择
+  // 鍙栨秷閫夋嫨
   const handleCancel = () => {
     setSelectedRowKeys([])
   }
   
-  // 自定义选择列
-  const selectionColumn = {
+  // 鑷畾涔夐€夋嫨鍒?
+  const selectionColumn = showSelectionColumn ? {
     title: showIndex ? <Checkbox
       checked={selectedRowKeys.length === dataSource.length}
       onChange={(e) => {
         if (e.target.checked) {
-          // 全选
-          setSelectedRowKeys(dataSource.map(item => item[rowKey]))
+          // 鍏ㄩ€?          setSelectedRowKeys(dataSource.map(item => item[rowKey]))
         } else {
-          // 取消全选
-          setSelectedRowKeys([])
+          // 鍙栨秷鍏ㄩ€?          setSelectedRowKeys([])
         }
       }}
       style={{ margin: 0 }}
     /> : '',
     key: 'selection',
-    width: showIndex ? 32 : 24, // 固定宽度，正好显示checkbox
+    width: showIndex ? 32 : 24, // 鍥哄畾瀹藉害锛屾濂芥樉绀篶heckbox
     minWidth: showIndex ? 32 : 24,
     maxWidth: 36,
     align: 'center',
-    // 选择列不需要调整宽度
-    resizable: false,
+    // 閫夋嫨鍒椾笉闇€瑕佽皟鏁村搴?    resizable: false,
     render: (text, record) => {
       const isSelected = selectedRowKeys.includes(record[rowKey])
       return (
@@ -1078,16 +1076,16 @@ const MultiSelectDelete = ({
         </div>
       )
     },
-  }
+  } : null
   
-  // 验证：检查是否已有包含checkbox的列，确保每行只有一个复选框
+  // 楠岃瘉锛氭鏌ユ槸鍚﹀凡鏈夊寘鍚玞heckbox鐨勫垪锛岀‘淇濇瘡琛屽彧鏈変竴涓閫夋
   useEffect(() => {
-    // 检查传入的columns中是否已有包含checkbox的列
+    // 妫€鏌ヤ紶鍏ョ殑columns涓槸鍚﹀凡鏈夊寘鍚玞heckbox鐨勫垪
     const hasCheckboxColumn = columns.some(column => {
-      // 检查列的render函数是否返回Checkbox组件
+      // 妫€鏌ュ垪鐨剅ender鍑芥暟鏄惁杩斿洖Checkbox缁勪欢
       if (column.render) {
-        // 简单检查render函数的字符串表示中是否包含Checkbox
-        // 更复杂的检查可能需要运行时检查，但这会影响性能
+        // 绠€鍗曟鏌ender鍑芥暟鐨勫瓧绗︿覆琛ㄧず涓槸鍚﹀寘鍚獵heckbox
+        // 鏇村鏉傜殑妫€鏌ュ彲鑳介渶瑕佽繍琛屾椂妫€鏌ワ紝浣嗚繖浼氬奖鍝嶆€ц兘
         const renderStr = column.render.toString()
         return renderStr.includes('Checkbox') || renderStr.includes('checkbox')
       }
@@ -1100,7 +1098,7 @@ const MultiSelectDelete = ({
     }
   }, [columns])
   
-  // 实现展开行渲染函数，用于显示下拉列，优化移动端体验
+  // 瀹炵幇灞曞紑琛屾覆鏌撳嚱鏁帮紝鐢ㄤ簬鏄剧ず涓嬫媺鍒楋紝浼樺寲绉诲姩绔綋楠?
   const expandedRowRender = (record) => {
     if (!hiddenColumns || hiddenColumns.length === 0) {
       return null;
@@ -1127,9 +1125,9 @@ const MultiSelectDelete = ({
               fontWeight: '600',
               borderBottom: '1px solid #e1e4e8',
               paddingBottom: '8px'
-            }}>详细信息</h4>
+            }}>璇︾粏淇℃伅</h4>
             
-            {/* 使用表格形式展示键值对 */}
+            {/* 浣跨敤琛ㄦ牸褰㈠紡灞曠ず閿€煎 */}
             <table style={{ 
               width: '100%',
               borderCollapse: 'collapse',
@@ -1140,7 +1138,7 @@ const MultiSelectDelete = ({
             }}>
               <tbody>
                 {hiddenColumns.map(column => {
-                  // 获取列数据，支持嵌套路径如 ['data', 'column_name']
+                  // 鑾峰彇鍒楁暟鎹紝鏀寔宓屽璺緞濡?['data', 'column_name']
                   let value = record;
                   const dataIndex = Array.isArray(column.dataIndex) ? column.dataIndex : [column.dataIndex];
                   
@@ -1149,15 +1147,15 @@ const MultiSelectDelete = ({
                     value = value[key];
                   }
                   
-                  // 处理值和链接信息
+                  // 澶勭悊鍊煎拰閾炬帴淇℃伅
                   let displayValue = value !== null && value !== undefined ? value : '-';
                   let finalContent = displayValue;
                   let valueForEvent = displayValue;
                   
-                  // 检查数据是否包含链接信息
+                  // 妫€鏌ユ暟鎹槸鍚﹀寘鍚摼鎺ヤ俊鎭?
                   if (typeof displayValue === 'object' && displayValue !== null) {
                     if (displayValue._storage) {
-                      valueForEvent = displayValue._text || '查看存储位置'
+                      valueForEvent = displayValue._text || '点击查看位置'
                       const positions = displayValue._positions || []
                       if (positions.length > 0) {
                         const firstPos = positions[0]
@@ -1181,7 +1179,7 @@ const MultiSelectDelete = ({
                               overflow: 'hidden'
                             }}
                           >
-                            {displayValue._text || '查看存储位置'}
+                            {displayValue._text || '点击查看位置'}
                           </a>
                         )
                       } else {
@@ -1196,35 +1194,35 @@ const MultiSelectDelete = ({
                             wordBreak: 'break-word',
                             overflow: 'hidden'
                           }}>
-                            {displayValue._text || '查看存储位置'}
+                            {displayValue._text || '点击查看位置'}
                           </span>
                         )
                       }
                     } else
-                    // 如果数据是包含链接信息的对象 { _text: '原始文本', _link: '链接URL' }
+                    // 濡傛灉鏁版嵁鏄寘鍚摼鎺ヤ俊鎭殑瀵硅薄 { _text: '鍘熷鏂囨湰', _link: '閾炬帴URL' }
                     if (displayValue._text && displayValue._link) {
                       valueForEvent = displayValue._text;
                       
-                      // 检查链接是否为表格链接
+                      // 妫€鏌ラ摼鎺ユ槸鍚︿负琛ㄦ牸閾炬帴
                       const isTableLink = displayValue._link.startsWith('table:');
                       
                       if (isTableLink) {
-                        // 处理表格链接，格式：table:{targetTableId}:{targetRowId}
+                        // 澶勭悊琛ㄦ牸閾炬帴锛屾牸寮忥細table:{targetTableId}:{targetRowId}
                         finalContent = (
                           <a
                             href="#"
                             onClick={(e) => {
-                              e.preventDefault(); // 阻止默认的href跳转
+                              e.preventDefault(); // 闃绘榛樿鐨刪ref璺宠浆
                               const [, targetTableId, targetRowId] = displayValue._link.split(':');
                               if (targetTableId && targetRowId) {
-                                // 跳转到目标表格
+                                // 璺宠浆鍒扮洰鏍囪〃鏍?
                                 localStorage.setItem('selectedTableId', targetTableId);
-                                // 保存需要展开的行ID和目标表格ID
+                                // 淇濆瓨闇€瑕佸睍寮€鐨勮ID鍜岀洰鏍囪〃鏍糏D
                                 localStorage.setItem('autoExpandInfo', JSON.stringify({
                                   tableId: parseInt(targetTableId),
                                   rowId: parseInt(targetRowId)
                                 }));
-                                // 刷新页面
+                                // 鍒锋柊椤甸潰
                                 window.location.reload();
                               }
                             }}
@@ -1243,7 +1241,7 @@ const MultiSelectDelete = ({
                           </a>
                         );
                       } else {
-                        // 处理普通网页链接
+                        // 澶勭悊鏅€氱綉椤甸摼鎺?
                         finalContent = (
                           <a
                             href={displayValue._link}
@@ -1266,7 +1264,7 @@ const MultiSelectDelete = ({
                       }
                     }
                   } else if (typeof displayValue === 'string') {
-                    // 如果是普通字符串，直接使用
+                    // 濡傛灉鏄櫘閫氬瓧绗︿覆锛岀洿鎺ヤ娇鐢?
                     valueForEvent = displayValue;
                   }
                   
@@ -1294,11 +1292,11 @@ const MultiSelectDelete = ({
                       }}>
                         <div
                           onContextMenu={(e) => {
-                            // 传递原始value给事件处理函数，确保selectedCellValue是对象
+                            // 浼犻€掑師濮媣alue缁欎簨浠跺鐞嗗嚱鏁帮紝纭繚selectedCellValue鏄璞?
                             handleContextMenu(e, value, record, column)
                           }}
                           onTouchStart={(e) => {
-                            // 传递原始value给事件处理函数，确保selectedCellValue是对象
+                            // 浼犻€掑師濮媣alue缁欎簨浠跺鐞嗗嚱鏁帮紝纭繚selectedCellValue鏄璞?
                             handleLongPressStart(e, value, record, column)
                           }}
                           onTouchEnd={handleLongPressEnd}
@@ -1321,50 +1319,50 @@ const MultiSelectDelete = ({
     );
   };
   
-  // 格式化日期，只显示年月日
+  // 鏍煎紡鍖栨棩鏈燂紝鍙樉绀哄勾鏈堟棩
   const formatDateOnly = (dateString) => {
     if (!dateString) return '';
-    // 匹配 YYYY-MM-DD 格式
+    // 鍖归厤 YYYY-MM-DD 鏍煎紡
     const match = dateString.match(/^(\d{4}-\d{2}-\d{2})/);
     return match ? match[1] : dateString;
   };
 
-  // 合并列配置，确保至少有选择列
+  // 鍚堝苟鍒楅厤缃紝纭繚鑷冲皯鏈夐€夋嫨鍒?
   const mergedColumns = [
-    selectionColumn, 
+    ...(selectionColumn ? [selectionColumn] : []),
     ...(() => {
       const resultColumns = []
-      // 获取当前表格ID
+      // 鑾峰彇褰撳墠琛ㄦ牸ID
       const tableId = dataSource.length > 0 ? dataSource[0].table_id : 'default'
-      // 获取当前表格的字符长度显示配置
+      // 鑾峰彇褰撳墠琛ㄦ牸鐨勫瓧绗﹂暱搴︽樉绀洪厤缃?
       const tableConfig = showCharacterLengthColumns[tableId] || {}
       
-      // 遍历所有列
+      // 閬嶅巻鎵€鏈夊垪
       columns.forEach(column => {
         const columnKey = column.key || column.dataIndex
         const calculatedWidth = columnWidths[columnKey]
         
-        // 创建副本以避免修改原配置
+        // 鍒涘缓鍓湰浠ラ伩鍏嶄慨鏀瑰師閰嶇疆
         let newColumn = { 
           ...column,
-          // 添加列宽拖动功能
+          // 娣诲姞鍒楀鎷栧姩鍔熻兘
           resizable: true,
-          // 应用保存的列宽
+          // 搴旂敤淇濆瓨鐨勫垪瀹?
           width: calculatedWidth || column.width
         }
         
-        // 检查是否为创建时间列，只显示日期
+        // 妫€鏌ユ槸鍚︿负鍒涘缓鏃堕棿鍒楋紝鍙樉绀烘棩鏈?
         const isCreateTimeColumn = [
-          '创建时间', 'createTime', 'created_at', 'create_at', '创建日期', 'date'
+          '鍒涘缓鏃堕棿', 'createTime', 'created_at', 'create_at', '鍒涘缓鏃ユ湡', 'date'
         ].includes(columnKey) || 
         [
-          '创建时间', '创建日期', '日期'
+          '鍒涘缓鏃堕棿', '鍒涘缓鏃ユ湡', '鏃ユ湡'
         ].includes(column.title)
       
-      // 保存原始render函数
+      // 淇濆瓨鍘熷render鍑芥暟
       const originalRender = column.render
       
-      // 为表头添加右键菜单
+      // 涓鸿〃澶存坊鍔犲彸閿彍鍗?
       newColumn.title = (
         <div
           onContextMenu={(e) => handleHeaderContextMenu(e, newColumn)}
@@ -1381,15 +1379,15 @@ const MultiSelectDelete = ({
         </div>
       )
       
-      // 重写render函数，添加右键菜单和长按功能
+      // 閲嶅啓render鍑芥暟锛屾坊鍔犲彸閿彍鍗曞拰闀挎寜鍔熻兘
       newColumn.render = (text, record) => {
         let displayContent = text
         let value = text
         
-        // 获取实际值
+        // 鑾峰彇瀹為檯鍊?
         let actualValue = text
         if (Array.isArray(column.dataIndex) && column.dataIndex.length > 1) {
-          // 对于嵌套数据索引，如['data', 'column_name']，获取具体列值
+          // 瀵逛簬宓屽鏁版嵁绱㈠紩锛屽['data', 'column_name']锛岃幏鍙栧叿浣撳垪鍊?
           let tempValue = record
           for (const key of column.dataIndex) {
             if (tempValue === null || tempValue === undefined) break
@@ -1397,30 +1395,30 @@ const MultiSelectDelete = ({
           }
           actualValue = tempValue
         } else if (column.dataIndex) {
-          // 对于直接数据索引，直接获取值
+          // 瀵逛簬鐩存帴鏁版嵁绱㈠紩锛岀洿鎺ヨ幏鍙栧€?
           actualValue = record[column.dataIndex]
         }
         
-        // 保存用于事件处理的实际值
+        // 淇濆瓨鐢ㄤ簬浜嬩欢澶勭悊鐨勫疄闄呭€?
         let valueForEvent = actualValue
-        // 如果是链接对象，只使用文本部分
+        // 濡傛灉鏄摼鎺ュ璞★紝鍙娇鐢ㄦ枃鏈儴鍒?
         if (typeof actualValue === 'object' && actualValue !== null && actualValue._text) {
           valueForEvent = actualValue._text
         }
         
-        // 如果有原始render函数，先调用它
+        // 濡傛灉鏈夊師濮媟ender鍑芥暟锛屽厛璋冪敤瀹?
         if (originalRender) {
           const rendered = originalRender(text, record)
           if (rendered && typeof rendered === 'string') {
             displayContent = rendered
             valueForEvent = rendered
           } else if (rendered && React.isValidElement(rendered)) {
-            // 如果是React元素，将其作为子元素
+            // 濡傛灉鏄疪eact鍏冪礌锛屽皢鍏朵綔涓哄瓙鍏冪礌
             displayContent = rendered
           } else if (typeof rendered === 'object' && rendered !== null) {
-            // 如果是对象，可能是链接对象，直接使用
+            // 濡傛灉鏄璞★紝鍙兘鏄摼鎺ュ璞★紝鐩存帴浣跨敤
             displayContent = rendered
-            // 更新valueForEvent，确保是文本
+            // 鏇存柊valueForEvent锛岀‘淇濇槸鏂囨湰
             if (rendered._text) {
               valueForEvent = rendered._text
             } else {
@@ -1428,25 +1426,25 @@ const MultiSelectDelete = ({
             }
           }
         } else {
-          // 如果没有原始render函数，处理actualValue
+          // 濡傛灉娌℃湁鍘熷render鍑芥暟锛屽鐞哸ctualValue
           if (typeof actualValue === 'object' && actualValue !== null) {
-            // 如果是链接对象，直接使用整个对象，以便后续处理
+            // 濡傛灉鏄摼鎺ュ璞★紝鐩存帴浣跨敤鏁翠釜瀵硅薄锛屼互渚垮悗缁鐞?
             if (actualValue._text && actualValue._link) {
               displayContent = actualValue
               valueForEvent = actualValue._text
             } else {
-              // 如果是普通对象，转换为字符串
+              // 濡傛灉鏄櫘閫氬璞★紝杞崲涓哄瓧绗︿覆
               displayContent = String(actualValue)
               valueForEvent = String(actualValue)
             }
           } else {
-            // 如果是基本类型，直接使用
+            // 濡傛灉鏄熀鏈被鍨嬶紝鐩存帴浣跨敤
             displayContent = actualValue
             valueForEvent = String(actualValue)
           }
         }
         
-        // 格式化日期，只显示年月日
+        // 鏍煎紡鍖栨棩鏈燂紝鍙樉绀哄勾鏈堟棩
         if (isCreateTimeColumn) {
           if (typeof displayContent === 'string') {
             displayContent = formatDateOnly(displayContent)
@@ -1458,38 +1456,38 @@ const MultiSelectDelete = ({
           }
         }
         
-        // 检查数据是否包含链接信息
+        // 妫€鏌ユ暟鎹槸鍚﹀寘鍚摼鎺ヤ俊鎭?
         let finalContent = displayContent
         
-        // 处理链接信息
+        // 澶勭悊閾炬帴淇℃伅
         if (typeof displayContent === 'object' && displayContent !== null) {
-          // 如果是React元素，直接使用
+          // 濡傛灉鏄疪eact鍏冪礌锛岀洿鎺ヤ娇鐢?
           if (React.isValidElement(displayContent)) {
             finalContent = displayContent
           } else if (displayContent._text && displayContent._link) {
-            // 如果数据是包含链接信息的对象 { _text: '原始文本', _link: '链接URL' }
+            // 濡傛灉鏁版嵁鏄寘鍚摼鎺ヤ俊鎭殑瀵硅薄 { _text: '鍘熷鏂囨湰', _link: '閾炬帴URL' }
             valueForEvent = displayContent._text
             
-            // 检查链接是否为表格链接
+            // 妫€鏌ラ摼鎺ユ槸鍚︿负琛ㄦ牸閾炬帴
             const isTableLink = displayContent._link.startsWith('table:');
             
             if (isTableLink) {
-              // 处理表格链接，格式：table:{targetTableId}:{targetRowId}
+              // 澶勭悊琛ㄦ牸閾炬帴锛屾牸寮忥細table:{targetTableId}:{targetRowId}
               finalContent = (
                 <a
                   href="#"
                     onClick={(e) => {
-                      e.preventDefault(); // 阻止默认的href跳转
+                      e.preventDefault(); // 闃绘榛樿鐨刪ref璺宠浆
                       const [, targetTableId, targetRowId] = displayContent._link.split(':');
                       if (targetTableId && targetRowId) {
-                        // 跳转到目标表格
+                        // 璺宠浆鍒扮洰鏍囪〃鏍?
                         localStorage.setItem('selectedTableId', targetTableId);
-                        // 保存需要展开的行ID和目标表格ID
+                        // 淇濆瓨闇€瑕佸睍寮€鐨勮ID鍜岀洰鏍囪〃鏍糏D
                         localStorage.setItem('autoExpandInfo', JSON.stringify({
                           tableId: parseInt(targetTableId),
                           rowId: parseInt(targetRowId)
                         }));
-                        // 刷新页面
+                        // 鍒锋柊椤甸潰
                         window.location.reload();
                       }
                     }}
@@ -1510,7 +1508,7 @@ const MultiSelectDelete = ({
                 </a>
               );
             } else {
-              // 处理普通网页链接
+              // 澶勭悊鏅€氱綉椤甸摼鎺?
               finalContent = (
                 <a
                   href={displayContent._link}
@@ -1534,25 +1532,25 @@ const MultiSelectDelete = ({
               );
             }
           } else {
-            // 如果是普通对象，转换为字符串
+            // 濡傛灉鏄櫘閫氬璞★紝杞崲涓哄瓧绗︿覆
             valueForEvent = String(displayContent)
             finalContent = String(displayContent)
           }
         } else if (displayContent === null || displayContent === undefined) {
-          // 如果是null或undefined，显示空字符串
+          // 濡傛灉鏄痭ull鎴杣ndefined锛屾樉绀虹┖瀛楃涓?
           valueForEvent = '-'
           finalContent = '-'
         }
         
-        // 添加右键菜单和长按功能
+        // 娣诲姞鍙抽敭鑿滃崟鍜岄暱鎸夊姛鑳?
         return (
           <div
             onContextMenu={(e) => {
-              // 传递原始actualValue给事件处理函数，确保selectedCellValue是对象
+              // 浼犻€掑師濮媋ctualValue缁欎簨浠跺鐞嗗嚱鏁帮紝纭繚selectedCellValue鏄璞?
               handleContextMenu(e, actualValue, record, column)
             }}
             onTouchStart={(e) => {
-              // 传递原始actualValue给事件处理函数，确保selectedCellValue是对象
+              // 浼犻€掑師濮媋ctualValue缁欎簨浠跺鐞嗗嚱鏁帮紝纭繚selectedCellValue鏄璞?
               handleLongPressStart(e, actualValue, record, column)
             }}
             onTouchEnd={handleLongPressEnd}
@@ -1560,13 +1558,13 @@ const MultiSelectDelete = ({
             style={{ 
               cursor: typeof displayContent === 'object' && displayContent?._link ? 'pointer' : 'default',
               userSelect: 'none',
-              // 确保整个单元格都能响应事件
+              // 纭繚鏁翠釜鍗曞厓鏍奸兘鑳藉搷搴斾簨浠?
               width: '100%',
               height: '100%',
               display: 'inline-block',
-              // 确保内容居中
+              // 纭繚鍐呭灞呬腑
               textAlign: 'left',
-              // 确保内容能正确换行
+              // 纭繚鍐呭鑳芥纭崲琛?
               wordBreak: 'break-word'
             }}
           >
@@ -1576,38 +1574,38 @@ const MultiSelectDelete = ({
       }
       
       if (isCreateTimeColumn) {
-        // 应用动态计算的宽度，不再固定
+        // 搴旂敤鍔ㄦ€佽绠楃殑瀹藉害锛屼笉鍐嶅浐瀹?
         if (calculatedWidth) {
           newColumn.width = calculatedWidth
-          newColumn.minWidth = Math.max(calculatedWidth, 80) // 最小宽度80px
-          newColumn.maxWidth = Math.min(calculatedWidth * 1.2, 150) // 最大宽度150px
+          newColumn.minWidth = Math.max(calculatedWidth, 80) // 鏈€灏忓搴?0px
+          newColumn.maxWidth = Math.min(calculatedWidth * 1.2, 150) // 鏈€澶у搴?50px
         }
-      } else if (columnKey === 'action' || column.title === '操作') {
-        // 处理操作列，保留传入的宽度设置，不覆盖
-        newColumn.className = 'action-column' // 添加action-column类名，方便CSS选择器定位
+      } else if (columnKey === 'action' || column.title === '鎿嶄綔') {
+        // 澶勭悊鎿嶄綔鍒楋紝淇濈暀浼犲叆鐨勫搴﹁缃紝涓嶈鐩?
+        newColumn.className = 'action-column' // 娣诲姞action-column绫诲悕锛屾柟渚緾SS閫夋嫨鍣ㄥ畾浣?
       }
       
-      // 应用动态计算的宽度，但不覆盖操作列的设置
-      if (calculatedWidth && !(columnKey === 'action' || column.title === '操作')) {
+      // 搴旂敤鍔ㄦ€佽绠楃殑瀹藉害锛屼絾涓嶈鐩栨搷浣滃垪鐨勮缃?
+      if (calculatedWidth && !(columnKey === 'action' || column.title === '鎿嶄綔')) {
         newColumn.width = calculatedWidth
         newColumn.minWidth = calculatedWidth
-        newColumn.maxWidth = calculatedWidth * 1.2 // 允许一定的扩展空间
+        newColumn.maxWidth = calculatedWidth * 1.2 // 鍏佽涓€瀹氱殑鎵╁睍绌洪棿
       }
       
-      // 检查是否需要在当前列前添加字符长度列
+      // 妫€鏌ユ槸鍚﹂渶瑕佸湪褰撳墠鍒楀墠娣诲姞瀛楃闀垮害鍒?
       if (tableConfig[columnKey]) {
-        // 添加字符长度列
+        // 娣诲姞瀛楃闀垮害鍒?
         const lengthColumn = {
-          title: '长度→',
+          title: '长度',
           key: `${columnKey}_length`,
           width: 60,
           minWidth: 50,
           maxWidth: 70,
           align: 'center',
-          // 添加样式，使背景色为浅蓝色
+          // 娣诲姞鏍峰紡锛屼娇鑳屾櫙鑹蹭负娴呰摑鑹?
           className: 'character-length-column',
           render: (text, record) => {
-            // 获取对应列的值
+            // 鑾峰彇瀵瑰簲鍒楃殑鍊?
             let actualValue = text
             if (Array.isArray(column.dataIndex) && column.dataIndex.length > 1) {
               let tempValue = record
@@ -1620,10 +1618,10 @@ const MultiSelectDelete = ({
               actualValue = record[column.dataIndex]
             }
             
-            // 计算trim后的长度
+            // 璁＄畻trim鍚庣殑闀垮害
             let textValue = ''
             if (typeof actualValue === 'object' && actualValue !== null) {
-              // 如果是链接对象，使用文本部分
+              // 濡傛灉鏄摼鎺ュ璞★紝浣跨敤鏂囨湰閮ㄥ垎
               if (actualValue._text) {
                 textValue = actualValue._text
               } else {
@@ -1639,7 +1637,7 @@ const MultiSelectDelete = ({
         resultColumns.push(lengthColumn)
       }
       
-      // 添加当前列到结果数组
+      // 娣诲姞褰撳墠鍒楀埌缁撴灉鏁扮粍
       resultColumns.push(newColumn)
     })
     
@@ -1649,7 +1647,7 @@ const MultiSelectDelete = ({
   
   return (
     <>
-      {/* 删除提示区域 */}
+      {/* 鍒犻櫎鎻愮ず鍖哄煙 */}
       {selectedRowKeys.length > 0 && (
         <div style={{
           backgroundColor: '#fff3f3',
@@ -1669,11 +1667,11 @@ const MultiSelectDelete = ({
             fontWeight: '500'
           }}>
             <DeleteOutlined style={{ marginRight: '8px', color: '#ff4d4f' }} />
-            已选中 {selectedRowKeys.length} 项，确定要删除吗？
+            宸查€変腑 {selectedRowKeys.length} 椤癸紝纭畾瑕佸垹闄ゅ悧锛?
           </div>
           <Space>
             <Button onClick={handleCancel} style={{ marginRight: '8px' }}>
-              取消
+              鍙栨秷
             </Button>
             <Button 
               type="primary" 
@@ -1681,13 +1679,13 @@ const MultiSelectDelete = ({
               onClick={handleDelete}
               loading={deleteLoading}
             >
-              确认删除
+              纭鍒犻櫎
             </Button>
           </Space>
         </div>
       )}
       
-      {/* 右键菜单 */}
+      {/* 鍙抽敭鑿滃崟 */}
       <Dropdown
         menu={{ items: contextMenuItems }}
         open={contextMenuVisible}
@@ -1702,7 +1700,7 @@ const MultiSelectDelete = ({
           zIndex: 10000
         }}
       >
-        {/* 透明的触发元素，用于定位 */}
+        {/* 閫忔槑鐨勮Е鍙戝厓绱狅紝鐢ㄤ簬瀹氫綅 */}
         <div
           style={{
             position: 'fixed',
@@ -1716,7 +1714,7 @@ const MultiSelectDelete = ({
         />
       </Dropdown>
       
-      {/* 移动端长按菜单 */}
+      {/* 绉诲姩绔暱鎸夎彍鍗?*/}
       {isMobileLongPress && (
         <Dropdown
           menu={{ items: contextMenuItems }}
@@ -1741,7 +1739,7 @@ const MultiSelectDelete = ({
         </Dropdown>
       )}
       
-      {/* 表头右键菜单 */}
+      {/* 琛ㄥご鍙抽敭鑿滃崟 */}
       <Dropdown
         menu={{ items: headerContextMenuItems }}
         open={headerContextMenuVisible}
@@ -1761,14 +1759,14 @@ const MultiSelectDelete = ({
         />
       </Dropdown>
       
-      {/* 链接输入模态框 */}
+      {/* 閾炬帴杈撳叆妯℃€佹 */}
       <Modal
         title="链接到网页"
         open={linkModalVisible}
         onOk={handleLinkSave}
         onCancel={handleLinkCancel}
-        okText="确定"
-        cancelText="取消"
+        okText="纭畾"
+        cancelText="鍙栨秷"
         width={500}
       >
         <div style={{ marginBottom: 16 }}>
@@ -1787,8 +1785,8 @@ const MultiSelectDelete = ({
         <div style={{ fontSize: 12, color: '#999' }}>
           <p>提示：</p>
           <ul style={{ margin: '8px 0 0 20px', padding: 0 }}>
-            <li>支持HTTP和HTTPS协议</li>
-            <li>如果不输入协议，默认添加https://前缀</li>
+            <li>支持 HTTP 和 HTTPS 协议</li>
+            <li>如果不输入协议，默认添加 https:// 前缀</li>
             <li>点击确定后，单元格文字将变为可点击链接</li>
           </ul>
         </div>
@@ -1798,21 +1796,21 @@ const MultiSelectDelete = ({
       
 
       
-      {/* 链接到表格模态框 */}
+      {/* 閾炬帴鍒拌〃鏍兼ā鎬佹 */}
       <Modal
         title="链接到表格"
         open={linkToTableModalVisible}
         onOk={handleLinkToTableSave}
         onCancel={handleLinkToTableCancel}
-        okText="确定"
-        cancelText="取消"
+        okText="纭畾"
+        cancelText="鍙栨秷"
         width={800}
-        // 只有选中了目标行才能确定
+        // 鍙湁閫変腑浜嗙洰鏍囪鎵嶈兘纭畾
         okButtonProps={{
           disabled: !selectedTargetRow
         }}
       >
-        {/* 表格选择下拉菜单 */}
+        {/* 琛ㄦ牸閫夋嫨涓嬫媺鑿滃崟 */}
         <div style={{ marginBottom: 24 }}>
           <p style={{ fontSize: 14, color: '#666', marginBottom: 8 }}>
             请选择要链接的表格：
@@ -1822,9 +1820,9 @@ const MultiSelectDelete = ({
             value={selectedTargetTable}
             onChange={(value) => {
               setSelectedTargetTable(value)
-              // 清空之前的选择
+              // 娓呯┖涔嬪墠鐨勯€夋嫨
               setSelectedTargetRow(null)
-              // 加载目标表格数据
+              // 鍔犺浇鐩爣琛ㄦ牸鏁版嵁
               if (value) {
                 fetchTargetTableData(value)
               } else {
@@ -1843,11 +1841,11 @@ const MultiSelectDelete = ({
             ))}
           </Select>
           
-          {/* 目标表格数据展示 */}
+          {/* 鐩爣琛ㄦ牸鏁版嵁灞曠ず */}
           {selectedTargetTable && (
             <div style={{ marginTop: 16 }}>
               <p style={{ fontSize: 14, color: '#666', marginBottom: 8 }}>
-                请选择要链接的行：
+                璇烽€夋嫨瑕侀摼鎺ョ殑琛岋細
               </p>
               <Spin spinning={targetTableLoading}>
                 <div style={{ maxHeight: 400, overflow: 'auto', border: '1px solid #e8e8e8', borderRadius: 4 }}>
@@ -1867,11 +1865,11 @@ const MultiSelectDelete = ({
                         showSizeChanger: true,
                         pageSizeOptions: ['10', '20', '50', '100']
                       }}
-                      // 生成列配置，使用目标表格的列顺序
+                      // 鐢熸垚鍒楅厤缃紝浣跨敤鐩爣琛ㄦ牸鐨勫垪椤哄簭
                       columns={[
-                        // 选择列
+                        // 閫夋嫨鍒?
                         {
-                          title: '选择',
+                          title: '閫夋嫨',
                           dataIndex: 'select',
                           width: 60,
                           render: (_, record) => (
@@ -1887,16 +1885,16 @@ const MultiSelectDelete = ({
                             />
                           )
                         },
-                        // ID列
+                        // ID鍒?
                         {
                           title: 'ID',
                           dataIndex: 'id',
                           width: 80,
                           sorter: (a, b) => a.id - b.id
                         },
-                        // 创建时间列
+                        // 鍒涘缓鏃堕棿鍒?
                         {
-                          title: '创建时间',
+                          title: '鍒涘缓鏃堕棿',
                           dataIndex: 'created_at',
                           width: 150,
                           render: (text) => {
@@ -1906,7 +1904,7 @@ const MultiSelectDelete = ({
                             return '-'
                           }
                         },
-                        // 数据列，使用目标表格的列配置
+                        // 鏁版嵁鍒楋紝浣跨敤鐩爣琛ㄦ牸鐨勫垪閰嶇疆
                         ...(() => {
                           const dataColumns = []
                           targetTableColumns.forEach(column => {
@@ -1917,7 +1915,7 @@ const MultiSelectDelete = ({
                               if (text === null || text === undefined) {
                                 return '-'
                               }
-                              // 如果是链接对象（包含_text和_link属性），只显示_text值
+                              // 濡傛灉鏄摼鎺ュ璞★紙鍖呭惈_text鍜宊link灞炴€э級锛屽彧鏄剧ず_text鍊?
                               if (typeof text === 'object' && text._text && text._link) {
                                 return text._text
                               }
@@ -1931,7 +1929,7 @@ const MultiSelectDelete = ({
                     />
                   ) : (
                     <div style={{ textAlign: 'center', padding: '40px 0', color: '#999' }}>
-                      {targetTableLoading ? '加载中...' : '暂无数据'}
+                      {targetTableLoading ? '鍔犺浇涓?..' : '鏆傛棤鏁版嵁'}
                     </div>
                   )}
                 </div>
@@ -1943,15 +1941,15 @@ const MultiSelectDelete = ({
         <div style={{ fontSize: 12, color: '#999', marginTop: 16 }}>
           <p>提示：</p>
           <ul style={{ margin: '8px 0 0 20px', padding: 0 }}>
-            <li>选择表格后将显示该表格的前20条数据</li>
-            <li>只能选择一行数据进行链接</li>
+            <li>选择表格后将显示该表格的前 10 条数据</li>
+            <li>只能够选择一行数据进行链接</li>
             <li>点击确定后，单元格文字将变为可点击链接</li>
             <li>点击链接后将跳转到对应表格并展开该行</li>
           </ul>
         </div>
       </Modal>
       
-      {/* 数据列表 - 添加空数据处理 */}
+      {/* 鏁版嵁鍒楄〃 - 娣诲姞绌烘暟鎹鐞?*/}
       {dataSource.length === 0 ? (
         <div style={{
           textAlign: 'center',
@@ -1962,7 +1960,7 @@ const MultiSelectDelete = ({
           borderTop: selectedRowKeys.length > 0 ? 'none' : '1px solid #e8e8e8'
         }}>
           <div style={{ fontSize: 16, color: '#666' }}>
-            {loading ? '数据加载中...' : '暂无数据'}
+            {loading ? '鏁版嵁鍔犺浇涓?..' : '鏆傛棤鏁版嵁'}
           </div>
         </div>
       ) : (
@@ -1977,29 +1975,29 @@ const MultiSelectDelete = ({
             dataSource={dataSource}
             loading={loading}
             pagination={pagination}
-            // 自定义行样式
+            // 鑷畾涔夎鏍峰紡
             rowClassName={(record) => {
               let className = ''
               if (selectedRowKeys.includes(record[rowKey])) {
                 className += 'selected-row '
               }
               if (highlightedRowId === record[rowKey]) {
-                console.log('[高亮调试] 应用highlighted-row类名到行ID:', record[rowKey])
+                console.log('[楂樹寒璋冭瘯] 搴旂敤highlighted-row绫诲悕鍒拌ID:', record[rowKey])
                 className += 'highlighted-row '
               }
               return className.trim()
             }}
-            // 添加CSS样式
+            // 娣诲姞CSS鏍峰紡
             style={{
               borderRadius: selectedRowKeys.length > 0 ? '0 0 8px 8px' : '8px',
               width: 'auto',
               minWidth: '100%'
             }}
-            // 自适应宽度配置
+            // 鑷€傚簲瀹藉害閰嶇疆
             scroll={{
-              x: 'max-content' // 让表格根据内容自动调整宽度
+              x: 'max-content' // 璁╄〃鏍兼牴鎹唴瀹硅嚜鍔ㄨ皟鏁村搴?
             }}
-            // 列宽拖动事件处理
+            // 鍒楀鎷栧姩浜嬩欢澶勭悊
             onColumnResize={(resizeInfo) => {
               const { width, columnKey } = resizeInfo
               if (columnKey) {
@@ -2009,19 +2007,22 @@ const MultiSelectDelete = ({
                 }))
               }
             }}
-            // 展开行配置
-            expandable={hiddenColumns.length > 0 ? {
+            // 灞曞紑琛岄厤缃?
+            expandable={{
               ...expandable,
-              expandedRowRender: expandedRowRender,
-              rowExpandable: (record) => hiddenColumns.length > 0
-            } : expandable}
+              expandedRowRender: expandable.expandedRowRender || expandedRowRender,
+              rowExpandable: expandable.rowExpandable || ((record) => hiddenColumns.length > 0),
+              showExpandColumn: expandable.showExpandColumn !== undefined
+                ? expandable.showExpandColumn
+                : hiddenColumns.length > 0
+            }}
           />
         </div>
       )}
       
-      {/* 全局样式 - 优化布局和视觉效果 */}
+      {/* 鍏ㄥ眬鏍峰紡 - 浼樺寲甯冨眬鍜岃瑙夋晥鏋?*/}
       <style>{`
-        /* 表格容器样式 */
+        /* 琛ㄦ牸瀹瑰櫒鏍峰紡 */
         .ant-table {
           border-radius: 8px;
           overflow: hidden;
@@ -2031,22 +2032,22 @@ const MultiSelectDelete = ({
           min-width: 100%;
         }
         
-        /* 字符长度列样式 - 确保整列统一颜色 */
-        /* 使用更具体的选择器，确保覆盖Ant Design默认样式 */
+        /* 瀛楃闀垮害鍒楁牱寮?- 纭繚鏁村垪缁熶竴棰滆壊 */
+        /* 浣跨敤鏇村叿浣撶殑閫夋嫨鍣紝纭繚瑕嗙洊Ant Design榛樿鏍峰紡 */
         .ant-table .ant-table-thead > tr > th.ant-table-cell.character-length-column,
         .ant-table .ant-table-tbody > tr > td.ant-table-cell.character-length-column {
           background-color: #e6f7ff !important;
           font-weight: 500;
         }
         
-        /* 确保行奇偶性不会影响字符长度列的背景色 */
-        /* 处理Ant Design的行奇偶样式 */
+        /* 纭繚琛屽鍋舵€т笉浼氬奖鍝嶅瓧绗﹂暱搴﹀垪鐨勮儗鏅壊 */
+        /* 澶勭悊Ant Design鐨勮濂囧伓鏍峰紡 */
         .ant-table .ant-table-tbody > tr.ant-table-row:nth-child(even) > td.ant-table-cell.character-length-column,
         .ant-table .ant-table-tbody > tr.ant-table-row.ant-table-row-even > td.ant-table-cell.character-length-column {
           background-color: #e6f7ff !important;
         }
         
-        /* 删除table-wrapper样式 */
+        /* 鍒犻櫎table-wrapper鏍峰紡 */
         .table-wrapper {
           all: unset;
           margin: 0 !important;
@@ -2057,7 +2058,7 @@ const MultiSelectDelete = ({
           display: block !important;
         }
         
-        /* 确保table-wrapper不会影响内部表格 */
+        /* 纭繚table-wrapper涓嶄細褰卞搷鍐呴儴琛ㄦ牸 */
         .table-wrapper > * {
           all: unset;
           width: auto !important;
@@ -2065,34 +2066,34 @@ const MultiSelectDelete = ({
           box-sizing: border-box !important;
         }
         
-        /* 表格内容容器样式 */
+        /* 琛ㄦ牸鍐呭瀹瑰櫒鏍峰紡 */
         .ant-table-content {
           width: auto !important;
           overflow: visible !important;
         }
         
-        /* 表格元素样式 */
+        /* 琛ㄦ牸鍏冪礌鏍峰紡 */
         .ant-table table {
           width: auto !important;
           min-width: 100%;
           table-layout: auto !important;
         }
         
-        /* 确保表格容器可以横向拖动平移 */
+        /* 纭繚琛ㄦ牸瀹瑰櫒鍙互妯悜鎷栧姩骞崇Щ */
         .ant-table-container {
           width: auto !important;
           min-width: 100%;
           overflow-x: auto !important;
-          /* 允许PC端鼠标拖动平移 */
+          /* 鍏佽PC绔紶鏍囨嫋鍔ㄥ钩绉?*/
           scroll-behavior: smooth;
-          /* 添加PC端拖动支持 */
+          /* 娣诲姞PC绔嫋鍔ㄦ敮鎸?*/
           -webkit-overflow-scrolling: touch;
-          /* 隐藏滚动条但保留滚动功能 */
+          /* 闅愯棌婊氬姩鏉′絾淇濈暀婊氬姩鍔熻兘 */
           scrollbar-width: thin;
           scrollbar-color: rgba(24, 144, 255, 0.5) transparent;
         }
         
-        /* 为PC端添加鼠标拖动平移样式 */
+        /* 涓篜C绔坊鍔犻紶鏍囨嫋鍔ㄥ钩绉绘牱寮?*/
         .ant-table-container::-webkit-scrollbar {
           height: 6px;
         }
@@ -2106,12 +2107,12 @@ const MultiSelectDelete = ({
           border-radius: 3px;
         }
         
-        /* 确保表格内容区域可以拖动 */
+        /* 纭繚琛ㄦ牸鍐呭鍖哄煙鍙互鎷栧姩 */
         .ant-table-content {
           overflow: visible !important;
         }
         
-        /* 表格响应式样式 */
+        /* 琛ㄦ牸鍝嶅簲寮忔牱寮?*/
         @media (max-width: 768px) {
           .ant-table {
             font-size: 12px;
@@ -2119,7 +2120,7 @@ const MultiSelectDelete = ({
             table-layout: fixed;
           }
           
-          /* 确保表格容器可以横向滚动 */
+          /* 纭繚琛ㄦ牸瀹瑰櫒鍙互妯悜婊氬姩 */
           .ant-table-container {
             overflow-x: auto;
             -webkit-overflow-scrolling: touch;
@@ -2129,7 +2130,7 @@ const MultiSelectDelete = ({
             box-sizing: border-box;
           }
           
-          /* 优化表格列样式，不显示省略号 */
+          /* 浼樺寲琛ㄦ牸鍒楁牱寮忥紝涓嶆樉绀虹渷鐣ュ彿 */
           .ant-table-thead > tr > th,
           .ant-table-tbody > tr > td {
             padding: 8px 8px;
@@ -2138,10 +2139,10 @@ const MultiSelectDelete = ({
             text-overflow: clip;
           }
           
-          /* 选择列（checkbox列）特殊处理 */
+          /* 閫夋嫨鍒楋紙checkbox鍒楋級鐗规畩澶勭悊 */
           .ant-table-thead > tr > th:first-child,
           .ant-table-tbody > tr > td:first-child {
-            /* 继承JavaScript设置的宽度，不固定 */
+            /* 缁ф壙JavaScript璁剧疆鐨勫搴︼紝涓嶅浐瀹?*/
             width: inherit !important;
             min-width: inherit !important;
             max-width: inherit !important;
@@ -2149,24 +2150,24 @@ const MultiSelectDelete = ({
             padding: 0;
           }
           
-          /* 为时间列设置合适宽度 - 允许自适应 */
+          /* 涓烘椂闂村垪璁剧疆鍚堥€傚搴?- 鍏佽鑷€傚簲 */
           .ant-table-thead > tr > th:nth-child(2),
           .ant-table-tbody > tr > td:nth-child(2) {
-            /* 时间列 - 继承JavaScript设置的宽度 */
+            /* 鏃堕棿鍒?- 缁ф壙JavaScript璁剧疆鐨勫搴?*/
             width: inherit !important;
             min-width: inherit !important;
             max-width: inherit !important;
           }
           
-          /* 操作列特殊处理 */
+          /* 鎿嶄綔鍒楃壒娈婂鐞?*/
           .ant-table-thead > tr > th:last-child,
           .ant-table-tbody > tr > td:last-child {
-            /* 操作列 */
+            /* 鎿嶄綔鍒?*/
             min-width: 180px;
             width: 200px;
           }
           
-          /* 数据列设置合适宽度 */
+          /* 鏁版嵁鍒楄缃悎閫傚搴?*/
           .ant-table-thead > tr > th:not(:first-child):not(:nth-child(2)):not(:last-child),
           .ant-table-tbody > tr > td:not(:first-child):not(:nth-child(2)):not(:last-child) {
             width: 200px;
@@ -2174,7 +2175,7 @@ const MultiSelectDelete = ({
             max-width: 300px;
           }
           
-          /* 操作按钮适配 */
+          /* 鎿嶄綔鎸夐挳閫傞厤 */
           .ant-btn {
             padding: 4px 8px;
             font-size: 11px;
@@ -2182,7 +2183,7 @@ const MultiSelectDelete = ({
           }
         }
         
-        /* 表格头部样式 */
+        /* 琛ㄦ牸澶撮儴鏍峰紡 */
         .ant-table-thead > tr > th {
           background-color: #fafafa;
           border-bottom: 2px solid #e8e8e8;
@@ -2193,10 +2194,10 @@ const MultiSelectDelete = ({
           transition: all 0.2s ease;
         }
         
-        /* checkbox列特殊处理 - 非媒体查询 */
+        /* checkbox鍒楃壒娈婂鐞?- 闈炲獟浣撴煡璇?*/
         .ant-table-thead > tr > th:first-child,
         .ant-table-tbody > tr > td:first-child {
-          /* checkbox列 - 只显示checkbox本身宽度 */
+          /* checkbox鍒?- 鍙樉绀篶heckbox鏈韩瀹藉害 */
           width: 28px !important;
           min-width: 28px !important;
           max-width: 30px !important;
@@ -2204,13 +2205,13 @@ const MultiSelectDelete = ({
           text-align: center;
         }
         
-        /* 全选checkbox调整 */
+        /* 鍏ㄩ€塩heckbox璋冩暣 */
         .ant-table-thead > tr > th:first-child .ant-checkbox {
           margin: 0 !important;
           padding: 0 !important;
         }
         
-        /* 表格行样式 - 行高变为原来的3/4 */
+        /* 琛ㄦ牸琛屾牱寮?- 琛岄珮鍙樹负鍘熸潵鐨?/4 */
         .ant-table .ant-table-tbody > tr > td {
           padding: 9px 12px !important;
           font-size: 11px !important;
@@ -2224,7 +2225,7 @@ const MultiSelectDelete = ({
           min-height: unset !important;
         }
         
-        /* 为操作列添加特殊样式，避免省略号显示 */
+        /* 涓烘搷浣滃垪娣诲姞鐗规畩鏍峰紡锛岄伩鍏嶇渷鐣ュ彿鏄剧ず */
         .ant-table .ant-table-tbody > tr > td:last-child,
         .ant-table .ant-table-tbody > tr > td.action-column {
           white-space: nowrap !important;
@@ -2232,9 +2233,9 @@ const MultiSelectDelete = ({
           text-overflow: clip !important;
         }
         
-        /* 移除所有展开图标相关的自定义样式，让Ant Design默认样式生效 */
+        /* 绉婚櫎鎵€鏈夊睍寮€鍥炬爣鐩稿叧鐨勮嚜瀹氫箟鏍峰紡锛岃Ant Design榛樿鏍峰紡鐢熸晥 */
         
-        /* 表格头部样式 - 行高变为原来的3/4 */
+        /* 琛ㄦ牸澶撮儴鏍峰紡 - 琛岄珮鍙樹负鍘熸潵鐨?/4 */
         .ant-table .ant-table-thead > tr > th {
           white-space: nowrap !important;
           overflow: visible !important;
@@ -2246,7 +2247,7 @@ const MultiSelectDelete = ({
           min-height: unset !important;
         }
         
-        /* 高亮行动画效果 */
+        /* 楂樹寒琛屽姩鐢绘晥鏋?*/
         @keyframes highlightFlash {
           0% {
             background-color: transparent;
@@ -2260,38 +2261,38 @@ const MultiSelectDelete = ({
           }
         }
         
-        /* 高亮行样式 - 简化为蓝色边框框住整行 */
+        /* 楂樹寒琛屾牱寮?- 绠€鍖栦负钃濊壊杈规妗嗕綇鏁磋 */
         .ant-table-tbody > tr.highlighted-row {
           animation: highlightFlash 1s ease-in-out 2 !important;
           animation-fill-mode: both !important;
         }
         
-        /* 高亮行单元格样式 - 只保留蓝色边框，去掉背景色和内阴影 */
+        /* 楂樹寒琛屽崟鍏冩牸鏍峰紡 - 鍙繚鐣欒摑鑹茶竟妗嗭紝鍘绘帀鑳屾櫙鑹插拰鍐呴槾褰?*/
         .ant-table-tbody > tr.highlighted-row > td {
           border-color: #1890ff !important;
           border-width: 2px !important;
           background-color: transparent !important;
         }
         
-        /* 第一个单元格添加左边框 */
+        /* 绗竴涓崟鍏冩牸娣诲姞宸﹁竟妗?*/
         .ant-table-tbody > tr.highlighted-row > td:first-child {
           border-left: 2px solid #1890ff !important;
           border-radius: 4px 0 0 4px !important;
         }
         
-        /* 最后一个单元格添加右边框 */
+        /* 鏈€鍚庝竴涓崟鍏冩牸娣诲姞鍙宠竟妗?*/
         .ant-table-tbody > tr.highlighted-row > td:last-child {
           border-right: 2px solid #1890ff !important;
           border-radius: 0 4px 4px 0 !important;
         }
         
-        /* 所有中间单元格确保有上下边框 */
+        /* 鎵€鏈変腑闂村崟鍏冩牸纭繚鏈変笂涓嬭竟妗?*/
         .ant-table-tbody > tr.highlighted-row > td {
           border-top: 2px solid #1890ff !important;
           border-bottom: 2px solid #1890ff !important;
         }
         
-        /* 为操作列表头添加特殊样式，避免省略号显示 */
+        /* 涓烘搷浣滃垪琛ㄥご娣诲姞鐗规畩鏍峰紡锛岄伩鍏嶇渷鐣ュ彿鏄剧ず */
         .ant-table .ant-table-thead > tr > th:last-child,
         .ant-table .ant-table-thead > tr > th.action-column {
           white-space: nowrap !important;
@@ -2299,26 +2300,26 @@ const MultiSelectDelete = ({
           text-overflow: clip !important;
         }
         
-        /* 为展开按钮列添加特殊样式，避免省略号显示 */
+        /* 涓哄睍寮€鎸夐挳鍒楁坊鍔犵壒娈婃牱寮忥紝閬垮厤鐪佺暐鍙锋樉绀?*/
         .ant-table .ant-table-tbody > tr > td.ant-table-row-expand-icon-cell {
           white-space: nowrap !important;
           overflow: visible !important;
           text-overflow: clip !important;
         }
         
-        /* 为展开按钮列表头添加特殊样式，避免省略号显示 */
+        /* 涓哄睍寮€鎸夐挳鍒楄〃澶存坊鍔犵壒娈婃牱寮忥紝閬垮厤鐪佺暐鍙锋樉绀?*/
         .ant-table .ant-table-thead > tr > th.ant-table-row-expand-icon-cell {
           white-space: nowrap !important;
           overflow: visible !important;
           text-overflow: clip !important;
         }
         
-        /* 确保行高应用到所有表格行 */
+        /* 纭繚琛岄珮搴旂敤鍒版墍鏈夎〃鏍艰 */
         .ant-table tr {
           height: auto !important;
         }
         
-        /* 确保行高应用到所有表格单元格 */
+        /* 纭繚琛岄珮搴旂敤鍒版墍鏈夎〃鏍煎崟鍏冩牸 */
         .ant-table td,
         .ant-table th {
           padding-top: 9px !important;
@@ -2326,48 +2327,48 @@ const MultiSelectDelete = ({
           line-height: 1.3 !important;
         }
         
-        /* 表格行悬停效果 - 统一悬停样式 */
+        /* 琛ㄦ牸琛屾偓鍋滄晥鏋?- 缁熶竴鎮仠鏍峰紡 */
         .ant-table .ant-table-tbody > tr:hover > td {
           background-color: #f5f7fa !important;
         }
         
-        /* 表格交替行颜色 - 高级浅色调 */
-        /* 重要：交替行颜色是常态，应用到所有未选中的数据行 */
-        /* 使用直接的选择器，确保能覆盖默认样式 */
+        /* 琛ㄦ牸浜ゆ浛琛岄鑹?- 楂樼骇娴呰壊璋?*/
+        /* 閲嶈锛氫氦鏇胯棰滆壊鏄父鎬侊紝搴旂敤鍒版墍鏈夋湭閫変腑鐨勬暟鎹 */
+        /* 浣跨敤鐩存帴鐨勯€夋嫨鍣紝纭繚鑳借鐩栭粯璁ゆ牱寮?*/
         .ant-table .ant-table-tbody > tr:not(.selected-row):nth-child(even) > td {
           background-color: #fafbfc !important;
           transition: background-color 0.2s ease;
         }
         
-        /* 确保悬停效果正常 */
+        /* 纭繚鎮仠鏁堟灉姝ｅ父 */
         .ant-table .ant-table-tbody > tr:not(.selected-row):nth-child(even):hover > td {
           background-color: #f5f7fa !important;
         }
         
-        /* 确保展开行不影响交替颜色序列 */
+        /* 纭繚灞曞紑琛屼笉褰卞搷浜ゆ浛棰滆壊搴忓垪 */
         .ant-table .ant-table-tbody > tr.ant-table-row-expandable + tr:not(.selected-row):nth-child(odd) > td {
           background-color: #fafbfc !important;
         }
         
-        /* 选中行样式优化 */
-        /* 重要：选中行背景色与红色警告区域一致 */
+        /* 閫変腑琛屾牱寮忎紭鍖?*/
+        /* 閲嶈锛氶€変腑琛岃儗鏅壊涓庣孩鑹茶鍛婂尯鍩熶竴鑷?*/
         .ant-table .ant-table-tbody .selected-row > td {
-          background-color: #fff3f3 !important; /* 与红色警告区域背景色一致 */
-          border-left: none !important; /* 移除所有单元格的左边框 */
+          background-color: #fff3f3 !important; /* 涓庣孩鑹茶鍛婂尯鍩熻儗鏅壊涓€鑷?*/
+          border-left: none !important; /* 绉婚櫎鎵€鏈夊崟鍏冩牸鐨勫乏杈规 */
           transition: all 0.2s ease;
         }
         
-        /* 只给选中行的第一列添加左边框 */
+        /* 鍙粰閫変腑琛岀殑绗竴鍒楁坊鍔犲乏杈规 */
         .ant-table .ant-table-tbody .selected-row > td:first-child {
-          border-left: 4px solid #ff4d4f !important; /* 只在第一列添加红色边框 */
+          border-left: 4px solid #ff4d4f !important; /* 鍙湪绗竴鍒楁坊鍔犵孩鑹茶竟妗?*/
         }
         
-        /* 确保选中行悬停效果正常 */
+        /* 纭繚閫変腑琛屾偓鍋滄晥鏋滄甯?*/
         .ant-table .ant-table-tbody .selected-row:hover > td {
           background-color: #ffe6e6 !important;
         }
         
-        /* 复选框样式优化 */
+        /* 澶嶉€夋鏍峰紡浼樺寲 */
         .ant-checkbox {
           margin: 0;
         }
@@ -2386,7 +2387,7 @@ const MultiSelectDelete = ({
           border-color: #1890ff;
         }
         
-        /* 移动端复选框特殊优化 */
+        /* 绉诲姩绔閫夋鐗规畩浼樺寲 */
         @media (max-width: 768px) {
           .ant-checkbox {
             transform: scale(0.9);
@@ -2398,7 +2399,7 @@ const MultiSelectDelete = ({
           }
         }
         
-        /* 删除按钮样式优化 */
+        /* 鍒犻櫎鎸夐挳鏍峰紡浼樺寲 */
         .ant-btn-primary.ant-btn-danger {
           background-color: #ff4d4f;
           border-color: #ff4d4f;
@@ -2412,18 +2413,18 @@ const MultiSelectDelete = ({
           box-shadow: 0 2px 8px rgba(255, 77, 79, 0.3);
         }
         
-        /* 操作按钮统一样式 - 缩小到原来的2/3 */
+        /* 鎿嶄綔鎸夐挳缁熶竴鏍峰紡 - 缂╁皬鍒板師鏉ョ殑2/3 */
         .action-button {
           border-radius: 4px;
           font-weight: 500;
           transition: all 0.3s ease;
-          font-size: 11px; /* 缩小到原来的2/3 */
-          padding: 3px 6px; /* 缩小到原来的2/3 */
-          margin: 0 1px; /* 间距缩小到原来的1/3 */
-          min-width: 47px; /* 缩小到原来的2/3 */
+          font-size: 11px; /* 缂╁皬鍒板師鏉ョ殑2/3 */
+          padding: 3px 6px; /* 缂╁皬鍒板師鏉ョ殑2/3 */
+          margin: 0 1px; /* 闂磋窛缂╁皬鍒板師鏉ョ殑1/3 */
+          min-width: 47px; /* 缂╁皬鍒板師鏉ョ殑2/3 */
         }
         
-        /* 编辑按钮hover效果 */
+        /* 缂栬緫鎸夐挳hover鏁堟灉 */
         .action-button.ant-btn-primary:hover {
           background: linear-gradient(135deg, #1890ff 0%, #40a9ff 100%);
           border-color: #1890ff;
@@ -2431,7 +2432,7 @@ const MultiSelectDelete = ({
           box-shadow: 0 4px 12px rgba(24, 144, 255, 0.4);
         }
         
-        /* 删除按钮hover效果 */
+        /* 鍒犻櫎鎸夐挳hover鏁堟灉 */
         .action-button.ant-btn-danger:hover {
           background: linear-gradient(135deg, #ff4d4f 0%, #ff7875 100%);
           border-color: #ff4d4f;
@@ -2439,7 +2440,7 @@ const MultiSelectDelete = ({
           box-shadow: 0 4px 12px rgba(255, 77, 79, 0.4);
         }
         
-        /* 展开/收起按钮hover效果 */
+        /* 灞曞紑/鏀惰捣鎸夐挳hover鏁堟灉 */
         .action-button.ant-btn-default:hover {
           background: linear-gradient(135deg, #f0f0f0 0%, #d9d9d9 100%);
           border-color: #d9d9d9;
@@ -2447,7 +2448,7 @@ const MultiSelectDelete = ({
           box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
         }
         
-        /* 操作列响应式设计 - 确保始终能容纳操作按钮 */
+        /* 鎿嶄綔鍒楀搷搴斿紡璁捐 - 纭繚濮嬬粓鑳藉绾虫搷浣滄寜閽?*/
         @media (max-width: 1200px) {
           .ant-table .ant-table-column-has-filters.action-column {
             width: 280px !important;
@@ -2469,13 +2470,13 @@ const MultiSelectDelete = ({
         }
         
         @media (max-width: 768px) {
-          /* 操作列适配移动端 */
+          /* 鎿嶄綔鍒楅€傞厤绉诲姩绔?*/
           .ant-table .ant-table-column-has-filters.action-column {
             width: 220px !important;
             min-width: 220px;
           }
           
-          /* 按钮适配移动端 */
+          /* 鎸夐挳閫傞厤绉诲姩绔?*/
           .action-button {
             font-size: 10px;
             padding: 2px 6px;
@@ -2485,24 +2486,24 @@ const MultiSelectDelete = ({
             max-width: 80px;
           }
           
-          /* Space容器适配移动端 */
+          /* Space瀹瑰櫒閫傞厤绉诲姩绔?*/
           .ant-space {
             flex-wrap: nowrap !important;
             justify-content: center;
             align-items: center;
           }
           
-          /* 确保表格可以横向滚动 */
+          /* 纭繚琛ㄦ牸鍙互妯悜婊氬姩 */
           .ant-table-container {
             overflow-x: auto;
           }
           
-          /* 表格行高适配移动端 */
+          /* 琛ㄦ牸琛岄珮閫傞厤绉诲姩绔?*/
           .ant-table-tbody > tr > td {
             padding: 6px 4px;
           }
           
-          /* 选择框大小适配移动端 */
+          /* 閫夋嫨妗嗗ぇ灏忛€傞厤绉诲姩绔?*/
           .ant-checkbox {
             transform: scale(0.8);
           }
@@ -2523,13 +2524,13 @@ const MultiSelectDelete = ({
           }
         }
         
-        /* 确保操作列空间充足 */
+        /* 纭繚鎿嶄綔鍒楃┖闂村厖瓒?*/
         .ant-table .ant-table-column-has-filters.action-column {
           white-space: nowrap;
           overflow: hidden;
         }
         
-        /* 展开行过渡动画 */
+        /* 灞曞紑琛岃繃娓″姩鐢?*/
         .ant-table-tbody > tr.expandable-row > td {
           padding: 0;
           border-bottom: 0;
@@ -2539,7 +2540,7 @@ const MultiSelectDelete = ({
           border-top: 0;
         }
         
-        /* 平滑过渡效果 */
+        /* 骞虫粦杩囨浮鏁堟灉 */
         .expandable-row-enter {
           max-height: 0;
           opacity: 0;
@@ -2568,7 +2569,7 @@ const MultiSelectDelete = ({
           overflow: hidden;
         }
         
-        /* 展开内容样式优化 */
+        /* 灞曞紑鍐呭鏍峰紡浼樺寲 */
         .expanded-row {
           background-color: #fafafa;
         }
@@ -2587,18 +2588,18 @@ const MultiSelectDelete = ({
           font-weight: 600;
         }
         
-        /* 隐藏列网格布局优化 */
+        /* 闅愯棌鍒楃綉鏍煎竷灞€浼樺寲 */
         .expanded-hidden-columns > div {
-          /* 使用flex布局替代grid，避免影响表格宽度 */
+          /* 浣跨敤flex甯冨眬鏇夸唬grid锛岄伩鍏嶅奖鍝嶈〃鏍煎搴?*/
           display: flex;
           flex-wrap: wrap;
           gap: 16px;
-          /* 确保不会超出表格容器宽度 */
+          /* 纭繚涓嶄細瓒呭嚭琛ㄦ牸瀹瑰櫒瀹藉害 */
           width: 100%;
           box-sizing: border-box;
         }
         
-        /* 隐藏列项样式优化 */
+        /* 闅愯棌鍒楅」鏍峰紡浼樺寲 */
         .expanded-hidden-columns > div > div {
           display: flex;
           flex-direction: column;
@@ -2628,7 +2629,7 @@ const MultiSelectDelete = ({
           word-break: break-all;
         }
         
-        /* 淡入动画 */
+        /* 娣″叆鍔ㄧ敾 */
         @keyframes fadeIn {
           from {
             opacity: 0;
@@ -2640,7 +2641,7 @@ const MultiSelectDelete = ({
           }
         }
         
-        /* 分页样式优化 */
+        /* 鍒嗛〉鏍峰紡浼樺寲 */
         .ant-pagination {
           margin-top: 20px;
           padding: 16px;
@@ -2649,26 +2650,26 @@ const MultiSelectDelete = ({
           box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
         }
         
-        /* 操作列按钮样式 - 缩小到原来的2/3 */
+        /* 鎿嶄綔鍒楁寜閽牱寮?- 缂╁皬鍒板師鏉ョ殑2/3 */
         .action-button {
           border-radius: 4px;
           font-weight: 500;
           transition: all 0.3s ease;
-          margin: 0 1px; /* 间距缩小到原来的1/3 */
-          min-width: 47px; /* 缩小到原来的2/3 */
+          margin: 0 1px; /* 闂磋窛缂╁皬鍒板師鏉ョ殑1/3 */
+          min-width: 47px; /* 缂╁皬鍒板師鏉ョ殑2/3 */
           text-align: center;
-          font-size: 11px; /* 缩小到原来的2/3 */
-          padding: 3px 6px; /* 缩小到原来的2/3 */
+          font-size: 11px; /* 缂╁皬鍒板師鏉ョ殑2/3 */
+          padding: 3px 6px; /* 缂╁皬鍒板師鏉ョ殑2/3 */
         }
         
-        /* 操作按钮容器Space间距缩小到原来的1/3 */
+        /* 鎿嶄綔鎸夐挳瀹瑰櫒Space闂磋窛缂╁皬鍒板師鏉ョ殑1/3 */
         .ant-table .ant-space {
-          gap: 2px !important; /* 缩小到原来的1/3 */
+          gap: 2px !important; /* 缂╁皬鍒板師鏉ョ殑1/3 */
           margin: 0 !important;
           padding: 0 !important;
         }
         
-        /* 编辑按钮hover效果 */
+        /* 缂栬緫鎸夐挳hover鏁堟灉 */
         .ant-btn-primary.action-button:hover {
           background-color: #40a9ff;
           border-color: #40a9ff;
@@ -2676,7 +2677,7 @@ const MultiSelectDelete = ({
           box-shadow: 0 2px 8px rgba(24, 144, 255, 0.3);
         }
         
-        /* 删除按钮hover效果 */
+        /* 鍒犻櫎鎸夐挳hover鏁堟灉 */
         .ant-btn-danger.action-button:hover {
           background-color: #ff7875;
           border-color: #ff7875;
@@ -2684,7 +2685,7 @@ const MultiSelectDelete = ({
           box-shadow: 0 2px 8px rgba(255, 77, 79, 0.3);
         }
         
-        /* 展开/收起按钮hover效果 */
+        /* 灞曞紑/鏀惰捣鎸夐挳hover鏁堟灉 */
         .ant-btn-default.action-button:hover {
           background-color: #f0f0f0;
           border-color: #d9d9d9;
@@ -2692,7 +2693,7 @@ const MultiSelectDelete = ({
           box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
         }
         
-        /* 响应式设计 */
+        /* 鍝嶅簲寮忚璁?*/
         @media (max-width: 768px) {
           .ant-table {
             font-size: 12px;
@@ -2707,36 +2708,36 @@ const MultiSelectDelete = ({
             grid-template-columns: 1fr;
           }
           
-          /* 响应式操作列 - 缩小到原来的1/2高度 */
+          /* 鍝嶅簲寮忔搷浣滃垪 - 缂╁皬鍒板師鏉ョ殑1/2楂樺害 */
           .action-button {
-            min-width: 35px; /* 缩小到原来的1/2 */
-            font-size: 8px; /* 缩小到原来的1/2 */
-            padding: 1.5px 4px !important; /* 缩小到原来的1/2 */
-            margin: 0 1px !important; /* 间距缩小到原来的1/3 */
+            min-width: 35px; /* 缂╁皬鍒板師鏉ョ殑1/2 */
+            font-size: 8px; /* 缂╁皬鍒板師鏉ョ殑1/2 */
+            padding: 1.5px 4px !important; /* 缂╁皬鍒板師鏉ョ殑1/2 */
+            margin: 0 1px !important; /* 闂磋窛缂╁皬鍒板師鏉ョ殑1/3 */
             height: auto !important;
             line-height: 1.1 !important;
           }
           
-          /* 响应式操作列Space */
+          /* 鍝嶅簲寮忔搷浣滃垪Space */
           .ant-space {
             justify-content: center;
-            gap: 2px !important; /* 间距缩小到原来的1/3 */
+            gap: 2px !important; /* 闂磋窛缂╁皬鍒板師鏉ョ殑1/3 */
           }
         }
         
-        /* 超小屏幕响应式 - 缩小到原来的1/2高度 */
+        /* 瓒呭皬灞忓箷鍝嶅簲寮?- 缂╁皬鍒板師鏉ョ殑1/2楂樺害 */
         @media (max-width: 480px) {
           .action-button {
-            min-width: 30px; /* 缩小到原来的1/2 */
-            font-size: 7px; /* 缩小到原来的1/2 */
-            padding: 1px 3px !important; /* 缩小到原来的1/2 */
-            margin: 0 0.5px !important; /* 间距缩小到原来的1/3 */
+            min-width: 30px; /* 缂╁皬鍒板師鏉ョ殑1/2 */
+            font-size: 7px; /* 缂╁皬鍒板師鏉ョ殑1/2 */
+            padding: 1px 3px !important; /* 缂╁皬鍒板師鏉ョ殑1/2 */
+            margin: 0 0.5px !important; /* 闂磋窛缂╁皬鍒板師鏉ョ殑1/3 */
             height: auto !important;
             line-height: 1 !important;
           }
         }
         
-        /* 最后添加，确保具有最高优先级 - 进一步减小高度 */
+        /* 鏈€鍚庢坊鍔狅紝纭繚鍏锋湁鏈€楂樹紭鍏堢骇 - 杩涗竴姝ュ噺灏忛珮搴?*/
         .ant-table .action-button {
           font-size: 8px !important;
           padding: 1px 4px !important;
@@ -2751,15 +2752,15 @@ const MultiSelectDelete = ({
           width: 28px !important;
         }
         
-        /* 使用通用选择器匹配所有操作按钮 */
-        /* 定位表格中的Space组件 */
+        /* 浣跨敤閫氱敤閫夋嫨鍣ㄥ尮閰嶆墍鏈夋搷浣滄寜閽?*/
+        /* 瀹氫綅琛ㄦ牸涓殑Space缁勪欢 */
         .ant-table .ant-space {
           display: flex !important;
           align-items: center !important;
           gap: 2px !important;
         }
         
-        /* 定位Space组件中的按钮 */
+        /* 瀹氫綅Space缁勪欢涓殑鎸夐挳 */
         .ant-table .ant-space > .ant-space-item > button {
           min-width: 32px !important;
           width: 32px !important;
@@ -2771,7 +2772,7 @@ const MultiSelectDelete = ({
           margin: 0 1px !important;
         }
         
-        /* 确保按钮内的图标容器可见 */
+        /* 纭繚鎸夐挳鍐呯殑鍥炬爣瀹瑰櫒鍙 */
         .ant-table .ant-space > .ant-space-item > button > span.ant-btn-icon {
           display: flex !important;
           align-items: center !important;
@@ -2780,14 +2781,14 @@ const MultiSelectDelete = ({
           padding: 0 !important;
         }
         
-        /* 确保图标可见 */
+        /* 纭繚鍥炬爣鍙 */
         .ant-table .ant-space > .ant-space-item > button > span.ant-btn-icon > span.anticon {
           display: flex !important;
           align-items: center !important;
           justify-content: center !important;
         }
         
-        /* 确保SVG图标可见 */
+        /* 纭繚SVG鍥炬爣鍙 */
         .ant-table .ant-space > .ant-space-item > button > span.ant-btn-icon > span.anticon > svg {
           display: block !important;
           width: 18px !important;
@@ -2797,7 +2798,7 @@ const MultiSelectDelete = ({
           opacity: 1 !important;
         }
         
-        /* 隐藏按钮文字，但保留直接作为按钮内容的符号 */
+        /* 闅愯棌鎸夐挳鏂囧瓧锛屼絾淇濈暀鐩存帴浣滀负鎸夐挳鍐呭鐨勭鍙?*/
         .ant-table .ant-space > .ant-space-item > button > span:not(.ant-btn-icon):not(.expand-icon-symbol) {
           display: none !important;
           visibility: hidden !important;
@@ -2808,7 +2809,7 @@ const MultiSelectDelete = ({
           left: -9999px !important;
         }
         
-        /* 确保展开按钮符号可见 */
+        /* 纭繚灞曞紑鎸夐挳绗﹀彿鍙 */
         .expand-icon-symbol {
           display: inline-block !important;
           visibility: visible !important;
@@ -2819,28 +2820,28 @@ const MultiSelectDelete = ({
           left: auto !important;
         }
         
-        /* 重置可能影响图标的样式 */
+        /* 閲嶇疆鍙兘褰卞搷鍥炬爣鐨勬牱寮?*/
         .ant-table .ant-space > .ant-space-item > button * {
           visibility: visible !important;
           opacity: 1 !important;
         }
         
-        /* 确保只有文字被隐藏 */
+        /* 纭繚鍙湁鏂囧瓧琚殣钘?*/
         .ant-table .ant-space > .ant-space-item > button > span:not(.ant-btn-icon):not(.expand-icon-symbol) * {
           display: none !important;
         }
         
-        /* 最后添加，确保具有最高优先级 - 所有表格单元格都不显示省略号 */
+        /* 鏈€鍚庢坊鍔狅紝纭繚鍏锋湁鏈€楂樹紭鍏堢骇 - 鎵€鏈夎〃鏍煎崟鍏冩牸閮戒笉鏄剧ず鐪佺暐鍙?*/
         .ant-table-cell {
           white-space: nowrap !important;
           overflow: visible !important;
           text-overflow: clip !important;
         }
         
-        /* 彻底去除点击触发的高亮，同时保留正常样式 */
-        /* 使用更精确的选择器和更高优先级 */
+        /* 褰诲簳鍘婚櫎鐐瑰嚮瑙﹀彂鐨勯珮浜紝鍚屾椂淇濈暀姝ｅ父鏍峰紡 */
+        /* 浣跨敤鏇寸簿纭殑閫夋嫨鍣ㄥ拰鏇撮珮浼樺厛绾?*/
         
-        /* 1. 去除所有按钮点击状态的高亮 */
+        /* 1. 鍘婚櫎鎵€鏈夋寜閽偣鍑荤姸鎬佺殑楂樹寒 */
         .ant-table button:focus,
         .ant-table button:active,
         .ant-table button:focus-visible,
@@ -2854,7 +2855,7 @@ const MultiSelectDelete = ({
           box-shadow: none !important;
         }
         
-        /* 2. 特别处理Ant Design按钮的点击状态 */
+        /* 2. 鐗瑰埆澶勭悊Ant Design鎸夐挳鐨勭偣鍑荤姸鎬?*/
         .ant-btn:focus,
         .ant-btn:active,
         .ant-btn:focus-visible,
@@ -2866,35 +2867,35 @@ const MultiSelectDelete = ({
           border-color: inherit !important;
         }
         
-        /* 3. 去除移动端点击高亮 */
+        /* 3. 鍘婚櫎绉诲姩绔偣鍑婚珮浜?*/
         * {
           -webkit-tap-highlight-color: transparent !important;
         }
         
-        /* 4. 确保正常样式不受影响 */
+        /* 4. 纭繚姝ｅ父鏍峰紡涓嶅彈褰卞搷 */
         button,
         .ant-btn,
         .action-button {
-          /* 保留所有正常样式 */
+          /* 淇濈暀鎵€鏈夋甯告牱寮?*/
         }
         
-        /* 5. 保留hover效果，只去除高亮 */
+        /* 5. 淇濈暀hover鏁堟灉锛屽彧鍘婚櫎楂樹寒 */
         button:hover,
         .ant-btn:hover,
         .action-button:hover {
           outline: none !important;
           box-shadow: none !important;
-          /* 其他hover样式由Ant Design默认处理 */
+          /* 鍏朵粬hover鏍峰紡鐢盇nt Design榛樿澶勭悊 */
         }
         
-        /* 6. 确保Ant Design按钮的默认样式正常 */
+        /* 6. 纭繚Ant Design鎸夐挳鐨勯粯璁ゆ牱寮忔甯?*/
         .ant-btn-default,
         .ant-btn-primary,
         .ant-btn-danger {
           border-color: transparent !important;
         }
         
-        /* 7. 确保图标按钮样式正常 */
+        /* 7. 纭繚鍥炬爣鎸夐挳鏍峰紡姝ｅ父 */
         .ant-btn-icon-only {
           outline: none !important;
           box-shadow: none !important;
@@ -2905,3 +2906,4 @@ const MultiSelectDelete = ({
 }
 
 export default MultiSelectDelete
+

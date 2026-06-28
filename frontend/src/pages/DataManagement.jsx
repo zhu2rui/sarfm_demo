@@ -39,6 +39,10 @@ const DataManagement = () => {
   // 高亮行ID状态，用于动画效果
   const [highlightedRowId, setHighlightedRowId] = useState(null)
   
+  // 聚合/归类模式
+  const [aggregateMode, setAggregateMode] = useState(false)
+  const [aggregateColumn, setAggregateColumn] = useState('')
+  
   // 复制行相关状态
   const [copiedOriginalData, setCopiedOriginalData] = useState(null)
   const [isCopyMode, setIsCopyMode] = useState(false)
@@ -69,6 +73,31 @@ const DataManagement = () => {
   
   // 当前搜索文本，用于分页时保持搜索状态
   const [currentSearchText, setCurrentSearchText] = useState('')
+
+  const getAggregateSettingKey = (tableId) => `aggregate_settings_${tableId}`
+  const getPageSizeSettingKey = () => 'page_size_setting_global'
+  const loadAggregateSource = async () => {
+    if (!selectedTable) return []
+
+    const allItems = []
+    let currentPage = 1
+    let totalCount = 0
+    const perPage = 100
+
+    do {
+      const response = await axios.get(`/api/v1/tables/${selectedTable.id}/data`, {
+        params: { page: currentPage, per_page: perPage }
+      })
+      if (response.data.code !== 200) break
+      const items = response.data.data.items || []
+      totalCount = response.data.data.total || 0
+      allItems.push(...items)
+      currentPage += 1
+      if (items.length === 0) break
+    } while (allItems.length < totalCount)
+
+    return allItems
+  }
   
   // 获取当前表格的搜索状态
   const getCurrentSearchState = () => {
@@ -100,6 +129,11 @@ const DataManagement = () => {
     }))
   }
 
+  const setCurrentPageSize = (value) => {
+    setPageSize(value)
+    localStorage.setItem(getPageSizeSettingKey(), String(value))
+  }
+
   const buildStorageValue = (positions) => {
     const textParts = positions.map(p => `${p.tank_name} > ${p.box_name} > ${p.label}`)
     return {
@@ -128,6 +162,31 @@ const DataManagement = () => {
           // 切换表格时清除搜索状态
           setCurrentSearchText('')
           setSearchStates({})
+          const savedPageSize = localStorage.getItem(getPageSizeSettingKey())
+          if (savedPageSize) {
+            const parsedPageSize = parseInt(savedPageSize, 10)
+            if (!Number.isNaN(parsedPageSize) && parsedPageSize > 0) {
+              setPageSize(parsedPageSize)
+            }
+          } else {
+            setPageSize(10)
+          }
+
+          const savedAggregateSettings = localStorage.getItem(getAggregateSettingKey(table.id))
+          if (savedAggregateSettings) {
+            try {
+              const parsed = JSON.parse(savedAggregateSettings)
+              setAggregateMode(!!parsed.aggregateMode)
+              setAggregateColumn(parsed.aggregateColumn || '')
+            } catch (error) {
+              console.error('恢复聚合设置失败:', error)
+              setAggregateMode(false)
+              setAggregateColumn('')
+            }
+          } else {
+            setAggregateMode(false)
+            setAggregateColumn('')
+          }
         } else {
           // 如果找不到对应的表格，设置为null
           console.warn(`找不到ID为${selectedTableId}的表格，重置为null`)
@@ -144,14 +203,35 @@ const DataManagement = () => {
         // 清除搜索状态
         setCurrentSearchText('')
         setSearchStates({})
+        setAggregateMode(false)
+        setAggregateColumn('')
+        setPageSize(10)
       }
     } else {
       setSelectedTable(null)
       // 清除搜索状态
       setCurrentSearchText('')
       setSearchStates({})
+      setAggregateMode(false)
+      setAggregateColumn('')
+      setPageSize(10)
     }
   }, [selectedTableId, tables])
+
+  useEffect(() => {
+    if (!selectedTable) return
+    localStorage.setItem(
+      getAggregateSettingKey(selectedTable.id),
+      JSON.stringify({
+        aggregateMode,
+        aggregateColumn
+      })
+    )
+  }, [aggregateMode, aggregateColumn, selectedTable])
+
+  useEffect(() => {
+    localStorage.setItem(getPageSizeSettingKey(), String(pageSize))
+  }, [pageSize])
 
   // 获取库存数据
 
@@ -244,15 +324,53 @@ const DataManagement = () => {
     }
   }
 
+  const refreshDataAfterMutation = async () => {
+    if (!selectedTable) return
+
+    if (aggregateMode && aggregateColumn) {
+      const allItems = await loadAggregateSource()
+      setAggregateAllData(allItems)
+
+      if (currentSearchText) {
+        const keyword = currentSearchText.trim()
+        const grouped = buildFilteredAggregatedData(allItems, keyword)
+        setCurrentSearchState({
+          searchResults: grouped,
+          isSearching: true,
+          searchCount: grouped.length,
+          highlightedText: keyword
+        })
+        setTotal(grouped.length)
+      } else {
+        setCurrentSearchState({
+          searchText: '',
+          searchResults: [],
+          isSearching: false,
+          searchCount: 0,
+          highlightedText: ''
+        })
+        setTotal(allItems.length)
+      }
+      return
+    }
+
+    if (currentSearchText) {
+      await fetchData({ searchText: currentSearchText })
+    } else {
+      await fetchData()
+    }
+  }
+
   // 当选中表格或分页参数变化时获取数据
   useEffect(() => {
     // 如果当前有搜索文本，则在分页时保持搜索状态
+    if (aggregateMode && aggregateColumn) return
     if (currentSearchText) {
       fetchData({ searchText: currentSearchText })
     } else {
       fetchData()
     }
-  }, [selectedTable, page, pageSize, currentSearchText])
+  }, [selectedTable, page, pageSize, currentSearchText, aggregateMode, aggregateColumn])
   
   // 当模态框关闭时清空快捷导入相关状态
   useEffect(() => {
@@ -716,7 +834,7 @@ const DataManagement = () => {
       if (response.data.code === 200) {
         message.success(isEditMode ? '数据更新成功' : '数据添加成功')
         setIsModalVisible(false)
-        fetchData() // 刷新数据
+        await refreshDataAfterMutation()
       } else {
         message.error(response.data.message)
       }
@@ -743,7 +861,7 @@ const DataManagement = () => {
       
       if (response.data.code === 200) {
         message.success('数据删除成功')
-        fetchData() // 刷新数据
+        await refreshDataAfterMutation()
       } else {
         message.error(response.data.message)
       }
@@ -758,7 +876,7 @@ const DataManagement = () => {
   // 处理分页变化
   const handlePaginationChange = (newPage, newPageSize) => {
     setPage(newPage)
-    setPageSize(newPageSize)
+    setCurrentPageSize(newPageSize)
   }
   
   // 搜索功能实现
@@ -771,27 +889,43 @@ const DataManagement = () => {
     
     setLoading(true)
     try {
-      // 调用后端API进行搜索，支持分页
-      const response = await axios.get(`/api/v1/tables/${selectedTable.id}/data`, {
-        params: {
-          page,
-          per_page: pageSize,
-          search: currentState.searchText.trim()
-        }
-      })
-      
-      if (response.data.code === 200) {
+      const keyword = currentState.searchText.trim()
+
+      if (aggregateMode && aggregateColumn) {
+        const source = aggregateAllData.length > 0 ? aggregateAllData : await loadAggregateSource()
+        const grouped = buildFilteredAggregatedData(source, keyword)
         setCurrentSearchState({
-          searchResults: response.data.data.items,
+          searchResults: grouped,
           isSearching: true,
-          searchCount: response.data.data.total,
-          highlightedText: currentState.searchText
+          searchCount: grouped.length,
+          highlightedText: keyword
         })
-        setCurrentSearchText(currentState.searchText.trim())
-        setTotal(response.data.data.total)
+        setCurrentSearchText(keyword)
+        setTotal(grouped.length)
         setPage(1)
       } else {
-        message.error(response.data.message || '搜索失败')
+        // 调用后端API进行搜索，支持分页
+        const response = await axios.get(`/api/v1/tables/${selectedTable.id}/data`, {
+          params: {
+            page,
+            per_page: pageSize,
+            search: keyword
+          }
+        })
+        
+        if (response.data.code === 200) {
+          setCurrentSearchState({
+            searchResults: response.data.data.items,
+            isSearching: true,
+            searchCount: response.data.data.total,
+            highlightedText: keyword
+          })
+          setCurrentSearchText(keyword)
+          setTotal(response.data.data.total)
+          setPage(1)
+        } else {
+          message.error(response.data.message || '搜索失败')
+        }
       }
     } catch (error) {
       message.error('搜索失败，请检查网络连接')
@@ -860,8 +994,10 @@ const DataManagement = () => {
     })
     setCurrentSearchText('')
     setPage(1)
-    // 重新获取原始数据（不带搜索条件）
-    fetchData()
+    if (!aggregateMode || !aggregateColumn) {
+      // 重新获取原始数据（不带搜索条件）
+      fetchData()
+    }
   }
 
   const applyCopySource = (sourceRecord) => {
@@ -1076,7 +1212,7 @@ const DataManagement = () => {
   const isMobile = screenWidth < 768
   
   // 生成表格列配置 - 返回可见列和下拉列，添加响应式处理
-  const generateColumns = () => {
+  const generateColumns = (forceNormalMode = false) => {
     if (!selectedTable) return { visibleColumns: [], hiddenColumns: [] }
     
     const visibleColumnsList = []
@@ -1196,8 +1332,9 @@ const DataManagement = () => {
             const value = record.data[column.column_name]
             // 存储列对象：显示为链接文本
             if (typeof value === 'object' && value !== null && value._storage) {
-              const displayText = value._text || '查看存储位置'
+              const displayText = '点击查看位置'
               const positions = value._positions || []
+              const hoverText = positions.map(p => `${p.tank_name} > ${p.box_name} > ${p.label}`).join('\n')
               if (positions.length > 0) {
                 // Link to the first position's box grid
                 const firstPos = positions[0]
@@ -1218,13 +1355,13 @@ const DataManagement = () => {
                       width: '100%',
                       wordBreak: 'break-word'
                     }}
-                    title={positions.map(p => `${p.tank_name} > ${p.box_name} > ${p.label}`).join('\n')}
+                    title={hoverText}
                   >
                     {displayText}
                   </a>
                 )
               }
-              return <span>{displayText}</span>
+              return <span title={hoverText}>{displayText}</span>
             }
 
             // 如果是链接对象，直接渲染为链接
@@ -1405,8 +1542,196 @@ const DataManagement = () => {
     
     // 合并所有下拉列
     const allHiddenColumns = [...baseHiddenColumns]
-    
+
+    if (!forceNormalMode && aggregateMode && aggregateColumn) {
+      const aggregateColumnObj = dataColumns.find(col => (col.key || col.dataIndex) === aggregateColumn)
+      const aggregateVisibleColumns = []
+      const aggregateHiddenColumns = []
+      const countColumn = {
+        title: '数量',
+        key: '__aggregate_count__',
+        width: 80,
+        minWidth: 70,
+        maxWidth: 100,
+        align: 'center',
+        render: (text, record) => (
+          <span>{record?._count ?? 0}</span>
+        )
+      }
+      const storageCountColumn = {
+        title: '占用格子总数',
+        key: '__aggregate_storage_count__',
+        width: 120,
+        minWidth: 100,
+        maxWidth: 140,
+        align: 'center',
+        render: (text, record) => (
+          <span>{record?._storageCount ?? 0}</span>
+        )
+      }
+
+      if (aggregateColumnObj) {
+        aggregateVisibleColumns.push(aggregateColumnObj)
+      }
+      aggregateVisibleColumns.push(countColumn)
+      aggregateVisibleColumns.push(storageCountColumn)
+
+      dataColumns
+        .filter(column => (column.key || column.dataIndex) !== aggregateColumn)
+        .forEach(column => {
+          aggregateHiddenColumns.push(column)
+        })
+
+      return { visibleColumns: aggregateVisibleColumns, hiddenColumns: aggregateHiddenColumns }
+    }
+
     return { visibleColumns: visibleColumnsList, hiddenColumns: allHiddenColumns }
+  }
+
+  const getAggregateColumns = () => {
+    if (!selectedTable || !Array.isArray(selectedTable.columns)) return []
+    return selectedTable.columns.filter(col => !col.is_storage && !col.autoIncrement)
+  }
+
+  const buildAggregatedData = (source = []) => {
+    if (!aggregateMode || !aggregateColumn) return source
+
+    const groups = new Map()
+    source.forEach(record => {
+      const raw = record?.data?.[aggregateColumn]
+      const key = typeof raw === 'object' && raw !== null
+        ? (raw._text !== undefined ? raw._text : JSON.stringify(raw))
+        : String(raw ?? '')
+      const groupKey = key.trim() || '(空)'
+      if (!groups.has(groupKey)) {
+        groups.set(groupKey, {
+          id: `agg-${groupKey}`,
+          _aggregate: true,
+          _aggregateKey: groupKey,
+          _children: [],
+          _count: 0,
+          _storageCount: 0,
+          data: { ...(record.data || {}) }
+        })
+      }
+      const group = groups.get(groupKey)
+      group._children.push(record)
+      group._count += 1
+      group.data[aggregateColumn] = raw
+      const storageCount = Object.values(record.data || {}).reduce((sum, value) => {
+        if (typeof value === 'object' && value !== null && value._storage) {
+          return sum + (Array.isArray(value._positions) ? value._positions.length : 0)
+        }
+        return sum
+      }, 0)
+      group._storageCount += storageCount
+    })
+
+    return Array.from(groups.values()).map(group => ({
+      ...group,
+      _children: group._children
+    }))
+  }
+
+  const getRecordSearchText = (record) => {
+    const values = Object.values(record?.data || {})
+    return values.map(value => {
+      if (typeof value === 'object' && value !== null) {
+        if (value._text !== undefined) return String(value._text ?? '')
+        return JSON.stringify(value)
+      }
+      return String(value ?? '')
+    }).join(' ')
+  }
+
+  const buildFilteredAggregatedData = (source = [], keyword = '') => {
+    const grouped = buildAggregatedData(source)
+    const trimmedKeyword = keyword.trim()
+    if (!trimmedKeyword) return grouped
+
+    let matcher = null
+    try {
+      matcher = new RegExp(trimmedKeyword, 'i')
+    } catch (error) {
+      matcher = null
+    }
+
+    return grouped.filter(group => {
+      const groupText = getRecordSearchText({ data: group.data })
+      const groupMatches = matcher
+        ? matcher.test(groupText)
+        : groupText.toLowerCase().includes(trimmedKeyword.toLowerCase())
+
+      if (groupMatches) return true
+
+      return Array.isArray(group._children) && group._children.some(child => {
+        const childText = getRecordSearchText(child)
+        return matcher
+          ? matcher.test(childText)
+          : childText.toLowerCase().includes(trimmedKeyword.toLowerCase())
+      })
+    })
+  }
+
+  const [aggregateAllData, setAggregateAllData] = useState([])
+  const [aggregateAllLoading, setAggregateAllLoading] = useState(false)
+
+  useEffect(() => {
+    const loadAllForAggregate = async () => {
+      if (!aggregateMode || !aggregateColumn || !selectedTable) return
+      setAggregateAllLoading(true)
+      try {
+        const allItems = await loadAggregateSource()
+        setAggregateAllData(allItems)
+      } catch (error) {
+        console.error('Load all data for aggregate failed:', error)
+      } finally {
+        setAggregateAllLoading(false)
+      }
+    }
+
+    loadAllForAggregate()
+  }, [aggregateMode, aggregateColumn, selectedTable])
+
+  const getDisplayData = () => {
+    const source = aggregateMode && aggregateColumn
+      ? (getCurrentSearchState().isSearching ? getCurrentSearchState().searchResults : aggregateAllData)
+      : (getCurrentSearchState().isSearching ? getCurrentSearchState().searchResults : dataList)
+    if (!aggregateMode || !aggregateColumn) return source
+    return getCurrentSearchState().isSearching ? source : buildAggregatedData(source)
+  }
+
+  const displayData = getDisplayData()
+  const displayTotal = aggregateMode && aggregateColumn
+    ? displayData.length
+    : (getCurrentSearchState().isSearching ? getCurrentSearchState().searchCount : total)
+
+  const getAggregateExpandedRows = (record) => {
+    if (!record?._aggregate || !Array.isArray(record._children)) return null
+    const rows = record._children
+    return (
+      <div style={{ padding: '12px 16px', background: '#fafafa', border: '1px solid #e8e8e8', borderTop: 'none' }}>
+        <div style={{ marginBottom: 8, color: '#333', fontWeight: 600 }}>
+          同组原始记录，共 {rows.length} 条
+        </div>
+        <div style={{ marginBottom: 12, color: '#888', fontSize: 12 }}>
+          点击左侧展开箭头查看这一组的原始数据行
+        </div>
+        <MultiSelectDelete
+          columns={generateColumns(true).visibleColumns}
+          hiddenColumns={generateColumns(true).hiddenColumns}
+          dataSource={rows}
+          rowKey="id"
+          showSelectionColumn={true}
+          loading={false}
+          deleteLoading={deleteLoading}
+          onDelete={handleDelete}
+          pagination={false}
+          expandable={{}}
+          highlightedRowId={highlightedRowId}
+        />
+      </div>
+    )
   }
 
   // 解析输入数据
@@ -1691,6 +2016,21 @@ const DataManagement = () => {
           )}
         </div>
         <Space size={isMobile ? "small" : "middle"} wrap style={{ width: '100%', justifyContent: isMobile ? 'center' : 'flex-end' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ color: '#666', fontSize: 12 }}>每页</span>
+            <Select
+              value={pageSize}
+              onChange={setCurrentPageSize}
+              style={{ width: 96 }}
+              options={[
+                { value: 10, label: '10' },
+                { value: 20, label: '20' },
+                { value: 50, label: '50' },
+                { value: 100, label: '100' },
+                { value: 200, label: '200' }
+              ]}
+            />
+          </div>
           {(userRole === 'admin' || userRole === 'leader' || userRole === 'member') && (
             <Button 
               type="primary" 
@@ -1780,6 +2120,47 @@ const DataManagement = () => {
         </div>
       )}
 
+      {selectedTable && (
+        <div style={{
+          marginBottom: 16,
+          padding: 16,
+          backgroundColor: '#fafafa',
+          borderRadius: 8,
+          border: '1px solid #e8e8e8',
+          display: 'flex',
+          gap: 12,
+          alignItems: 'center',
+          flexWrap: 'wrap'
+        }}>
+          <Checkbox checked={aggregateMode} onChange={e => {
+            setAggregateMode(e.target.checked)
+            if (!e.target.checked) setAggregateColumn('')
+          }}>
+            聚合模式
+          </Checkbox>
+          <Select
+            disabled={!aggregateMode}
+            value={aggregateColumn || undefined}
+            placeholder="选择聚合依据列"
+            style={{ width: 220 }}
+            options={getAggregateColumns().map(col => ({
+              value: col.column_name,
+              label: col.column_name
+            }))}
+            onChange={setAggregateColumn}
+            allowClear
+          />
+          <div style={{ color: '#888', fontSize: 12 }}>
+            打开后，相同依据列值会合并为一行，展开可查看同组全部原始记录
+          </div>
+          {aggregateMode && aggregateColumn && aggregateAllLoading && (
+            <div style={{ color: '#1890ff', fontSize: 12 }}>
+              正在加载全部数据用于全局聚合...
+            </div>
+          )}
+        </div>
+      )}
+
       {!selectedTable ? (
         <Card
           style={{ 
@@ -1796,7 +2177,7 @@ const DataManagement = () => {
             请从左侧菜单选择一个表格来管理数据
           </div>
         </Card>
-      ) : loading ? (
+      ) : (loading || (aggregateMode && aggregateColumn && aggregateAllLoading)) ? (
         <Card
           style={{ 
             textAlign: 'center', 
@@ -1812,7 +2193,7 @@ const DataManagement = () => {
             数据加载中...
           </div>
         </Card>
-      ) : dataList.length === 0 ? (
+      ) : (aggregateMode && aggregateColumn ? displayData.length === 0 : dataList.length === 0) ? (
         <Card
           style={{ 
             textAlign: 'center', 
@@ -1851,25 +2232,32 @@ const DataManagement = () => {
           {(() => {
             const { visibleColumns, hiddenColumns } = generateColumns();
             return (
-              <MultiSelectDelete
+                <MultiSelectDelete
                 columns={visibleColumns}
                 hiddenColumns={hiddenColumns}
-                dataSource={getCurrentSearchState().isSearching ? getCurrentSearchState().searchResults : dataList}
+                dataSource={displayData}
                 rowKey="id"
-                loading={loading}
+                showSelectionColumn={!aggregateMode || !aggregateColumn}
+                loading={loading || aggregateAllLoading}
                 deleteLoading={deleteLoading}
                 onDelete={handleDelete}
                 pagination={{
                   current: page,
                   pageSize: pageSize,
-                  total: getCurrentSearchState().isSearching ? getCurrentSearchState().searchCount : total,
+                  total: displayTotal,
                   onChange: handlePaginationChange,
                   showSizeChanger: true,
-                  pageSizeOptions: ['10', '20', '50', '100']
+                  pageSizeOptions: ['10', '20', '50', '100', '200'],
+                  hideOnSinglePage: aggregateMode && !!aggregateColumn
                 }}
                 expandable={{
                   expandedRowKeys: expandedRowKeys,
-                  onExpandedRowsChange: setExpandedRowKeys
+                  onExpandedRowsChange: setExpandedRowKeys,
+                  expandedRowRender: aggregateMode && aggregateColumn ? getAggregateExpandedRows : undefined,
+                  rowExpandable: aggregateMode && aggregateColumn
+                    ? (record) => !!record?._aggregate
+                    : undefined,
+                  showExpandColumn: aggregateMode && aggregateColumn ? true : undefined
                 }}
                 highlightedRowId={highlightedRowId}
               />
