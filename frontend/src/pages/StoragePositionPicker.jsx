@@ -14,7 +14,38 @@ const StoragePositionPicker = ({ visible, onCancel, onConfirm, preSelected }) =>
   const [loading, setLoading] = useState(false)
   const [gridLoading, setGridLoading] = useState(false)
   const [selectedCells, setSelectedCells] = useState(new Set())
+  const [selectedPositionMap, setSelectedPositionMap] = useState({})
   const { t } = useI18n()
+
+  const buildPositionMeta = (row, col, sourceGrid) => {
+    if (!sourceGrid?.box) return null
+    return {
+      tank_id: sourceGrid.box.tank_id,
+      tank_name: sourceGrid.box.tank_name,
+      box_id: sourceGrid.box.id,
+      box_name: sourceGrid.box.box_name,
+      row,
+      col,
+      label: `${ROW_LABELS[row - 1]}${col}`
+    }
+  }
+
+  const loadGridByBoxId = async (boxId) => {
+    if (!boxId) return null
+    setGridLoading(true)
+    try {
+      const response = await axios.get(`/api/v1/cryo-boxes/${boxId}/grid`)
+      if (response.data.code === 200) {
+        setGrid(response.data.data)
+        return response.data.data
+      }
+    } catch (error) {
+      message.error('获取网格数据失败')
+    } finally {
+      setGridLoading(false)
+    }
+    return null
+  }
 
   // Load tanks on mount
   useEffect(() => {
@@ -24,6 +55,11 @@ const StoragePositionPicker = ({ visible, onCancel, onConfirm, preSelected }) =>
       if (preSelected && preSelected.length > 0) {
         const initialKeys = new Set(preSelected.map(p => `${p.row},${p.col}`))
         setSelectedCells(initialKeys)
+        const initialMap = {}
+        preSelected.forEach(pos => {
+          initialMap[`${pos.row},${pos.col}`] = pos
+        })
+        setSelectedPositionMap(initialMap)
         if (preSelected[0].box_id) {
           setSelectedBoxId(preSelected[0].box_id)
           // We need to find the tank for this box
@@ -31,6 +67,7 @@ const StoragePositionPicker = ({ visible, onCancel, onConfirm, preSelected }) =>
         }
       } else {
         setSelectedCells(new Set())
+        setSelectedPositionMap({})
         setSelectedBoxId(null)
         setSelectedTankId(null)
         setGrid(null)
@@ -55,6 +92,7 @@ const StoragePositionPicker = ({ visible, onCancel, onConfirm, preSelected }) =>
               if (bxs.find(b => b.id === preSelected[0].box_id)) {
                 setSelectedTankId(tk.id)
                 setBoxes(bxs)
+                await loadGridByBoxId(preSelected[0].box_id)
                 break
               }
             }
@@ -93,26 +131,19 @@ const StoragePositionPicker = ({ visible, onCancel, onConfirm, preSelected }) =>
     setGrid(null)
     if (!boxId) return
 
-    setGridLoading(true)
-    try {
-      const response = await axios.get(`/api/v1/cryo-boxes/${boxId}/grid`)
-      if (response.data.code === 200) {
-        setGrid(response.data.data)
-      }
-    } catch (error) {
-      message.error('获取网格数据失败')
-    } finally {
-      setGridLoading(false)
-    }
+    await loadGridByBoxId(boxId)
   }
 
   const handleCellClick = (row, col) => {
     const key = `${row},${col}`
     const cell = grid?.grid?.[row - 1]?.[col - 1]
 
-    // Don't allow clicking occupied cells (unless it was pre-selected/editing)
     const isPreSelected = preSelected?.some(p => p.row === row && p.col === col)
-    if (cell && !isPreSelected) {
+    const isAlreadySelected = selectedCells.has(key)
+
+    // Allow toggling already-selected cells and allow adding empty cells.
+    // Only block cells that are occupied by other records.
+    if (cell && !isPreSelected && !isAlreadySelected) {
       message.warning(t('cryo.positionOccupied'))
       return
     }
@@ -121,8 +152,20 @@ const StoragePositionPicker = ({ visible, onCancel, onConfirm, preSelected }) =>
       const next = new Set(prev)
       if (next.has(key)) {
         next.delete(key)
+        setSelectedPositionMap(prevMap => {
+          const nextMap = { ...prevMap }
+          delete nextMap[key]
+          return nextMap
+        })
       } else {
         next.add(key)
+        const positionMeta = buildPositionMeta(row, col, grid)
+        if (positionMeta) {
+          setSelectedPositionMap(prevMap => ({
+            ...prevMap,
+            [key]: positionMeta
+          }))
+        }
       }
       return next
     })
@@ -136,17 +179,15 @@ const StoragePositionPicker = ({ visible, onCancel, onConfirm, preSelected }) =>
 
     const positions = []
     selectedCells.forEach(key => {
+      if (selectedPositionMap[key]) {
+        positions.push(selectedPositionMap[key])
+        return
+      }
       const [row, col] = key.split(',').map(Number)
-      const cell = grid.grid[row - 1][col - 1]
-      positions.push({
-        tank_id: grid.box.tank_id,
-        tank_name: grid.box.tank_name,
-        box_id: grid.box.id,
-        box_name: grid.box.box_name,
-        row,
-        col,
-        label: `${ROW_LABELS[row - 1]}${col}`
-      })
+      const positionMeta = buildPositionMeta(row, col, grid)
+      if (positionMeta) {
+        positions.push(positionMeta)
+      }
     })
 
     onConfirm(positions)
@@ -155,6 +196,15 @@ const StoragePositionPicker = ({ visible, onCancel, onConfirm, preSelected }) =>
   const getSelectedTags = () => {
     const tags = []
     selectedCells.forEach(key => {
+      const meta = selectedPositionMap[key]
+      if (meta) {
+        tags.push({
+          key,
+          label: meta.label,
+          boxInfo: meta.box_name
+        })
+        return
+      }
       const [row, col] = key.split(',').map(Number)
       const label = `${ROW_LABELS[row - 1]}${col}`
       const boxInfo = grid?.box?.box_name || ''

@@ -65,6 +65,8 @@ const DataManagement = () => {
   const [currentStorageColumn, setCurrentStorageColumn] = useState(null)
   const [selectedPositions, setSelectedPositions] = useState({}) // {columnName: [positions]}
   const [storagePreSelected, setStoragePreSelected] = useState([]) // pre-selected positions for edit mode
+  const [pendingModalRequest, setPendingModalRequest] = useState(null)
+  const [lastCryoDraftKey, setLastCryoDraftKey] = useState('')
   const [copyRowChooserVisible, setCopyRowChooserVisible] = useState(false)
   const [copyRowSelectedId, setCopyRowSelectedId] = useState(null)
   const [copyRowSearchText, setCopyRowSearchText] = useState('')
@@ -239,36 +241,52 @@ const DataManagement = () => {
     const stateDraft = location.state?.cryoEntry
     const draftStr = stateDraft ? JSON.stringify(stateDraft) : localStorage.getItem('cryoEntryDraft')
     const savedTableId = localStorage.getItem('selectedTableId')
-    if (!draftStr || !savedTableId || !selectedTable) return
+    if (!draftStr || !savedTableId) return
 
+    if (lastCryoDraftKey === draftStr && isModalVisible) return
+
+    let draft
     try {
-      const draft = JSON.parse(draftStr)
-      if (String(savedTableId) !== String(selectedTable.id)) return
-
-      if (draft.positions && draft.positions.length > 0) {
-        const storageColumns = Array.isArray(selectedTable.columns)
-          ? selectedTable.columns.filter(col => col.is_storage)
-          : []
-        const targetColumn = storageColumns[0]?.column_name
-        if (!targetColumn) return
-
-        setCurrentStorageColumn(targetColumn)
-        setSelectedPositions(prev => ({
-          ...prev,
-          [targetColumn]: draft.positions
-        }))
-        form.setFieldsValue({
-          [targetColumn]: JSON.stringify(buildStorageValue(draft.positions))
-        })
-        setIsEditMode(false)
-        setIsCopyMode(false)
-        setCurrentData(null)
-        setIsModalVisible(true)
-      }
-    } finally {
+      draft = JSON.parse(draftStr)
+    } catch (error) {
+      console.error('解析冻存录入草稿失败:', error)
       localStorage.removeItem('cryoEntryDraft')
+      return
     }
-  }, [selectedTable, location.state, form])
+
+    const targetTableId = Number(draft.tableId || savedTableId)
+    if (!Number.isFinite(targetTableId)) return
+
+    if (!selectedTable || Number(selectedTable.id) !== targetTableId) {
+      if (Number(selectedTableId) !== targetTableId) {
+        setSelectedTableId(targetTableId)
+      }
+      return
+    }
+
+    if (!Array.isArray(draft.positions) || draft.positions.length === 0) return
+
+    const storageColumns = Array.isArray(selectedTable.columns)
+      ? selectedTable.columns.filter(col => col.is_storage)
+      : []
+    const targetColumn = storageColumns[0]?.column_name
+    if (!targetColumn) return
+
+    setCurrentStorageColumn(targetColumn)
+    setSelectedPositions(prev => ({
+      ...prev,
+      [targetColumn]: draft.positions
+    }))
+    form.setFieldsValue({
+      [targetColumn]: JSON.stringify(buildStorageValue(draft.positions))
+    })
+    setIsEditMode(false)
+    setIsCopyMode(false)
+    setCurrentData(null)
+    setLastCryoDraftKey(draftStr)
+    setIsModalVisible(true)
+    localStorage.removeItem('cryoEntryDraft')
+  }, [location.key, selectedTable, selectedTableId, form, setSelectedTableId, isModalVisible, lastCryoDraftKey])
 
   const fetchData = async (searchParams = null) => {
     if (!selectedTable) return
@@ -478,8 +496,7 @@ const DataManagement = () => {
     saveColumnPreferences(newVisibleColumns)
   }
 
-  // 显示添加/编辑模态框
-  const showModal = (record = null, isCopy = false, preset = null) => {
+  const executeShowModal = (record = null, isCopy = false, preset = null) => {
     if (record) {
       if (isCopy) {
         // 复制模式：使用添加模式，但填充数据
@@ -556,12 +573,16 @@ const DataManagement = () => {
         setIsEditMode(true)
         setIsCopyMode(false)
         setCurrentData(record)
+        setSelectedPositions({})
+        setCurrentStorageColumn(null)
+        setStoragePreSelected([])
         
         // 初始化保留链接状态
         const initialKeepLinks = {}
         
         // 准备表单数据
         const formData = {}
+        const nextSelectedPositions = {}
         
         // 遍历所有列，确保每列都有对应的值
         selectedTable.columns.forEach(column => {
@@ -577,8 +598,10 @@ const DataManagement = () => {
           if (column.is_storage) {
             if (typeof value === 'object' && value !== null && value._storage) {
               const positions = value._positions || []
-              setSelectedPositions(prev => ({ ...prev, [key]: positions }))
+              nextSelectedPositions[key] = positions
               formData[key] = JSON.stringify(value)
+            } else {
+              formData[key] = ''
             }
             return
           }
@@ -621,6 +644,7 @@ const DataManagement = () => {
         })
 
         setKeepLinks(initialKeepLinks)
+        setSelectedPositions(nextSelectedPositions)
 
         console.log(`[DEBUG] Final formData:`, formData);
 
@@ -665,6 +689,37 @@ const DataManagement = () => {
     setIsModalVisible(true)
   }
 
+  // 显示添加/编辑模态框
+  const showModal = (record = null, isCopy = false, preset = null) => {
+    if (preset?.tableId && tables.length > 0) {
+      const targetTableId = Number(preset.tableId)
+      const currentTableId = selectedTable ? Number(selectedTable.id) : null
+      if (!currentTableId || currentTableId !== targetTableId) {
+        const target = tables.find(t => Number(t.id) === targetTableId)
+        if (target) {
+          setPendingModalRequest({ record, isCopy, preset })
+          setSelectedTable(target)
+          setSelectedTableId(target.id)
+          return
+        }
+      }
+    }
+
+    executeShowModal(record, isCopy, preset)
+  }
+
+  useEffect(() => {
+    if (!pendingModalRequest) return
+    if (!selectedTable) return
+
+    const targetTableId = pendingModalRequest.preset?.tableId
+    if (targetTableId && Number(selectedTable.id) !== Number(targetTableId)) return
+
+    const request = pendingModalRequest
+    setPendingModalRequest(null)
+    executeShowModal(request.record, request.isCopy, request.preset)
+  }, [pendingModalRequest, selectedTable])
+
   // 处理表单提交
   const handleSubmit = async (values) => {
     if (!selectedTable) return
@@ -704,6 +759,8 @@ const DataManagement = () => {
               _positions: positions,
               _text: textParts.join(', ')
             }
+          } else {
+            values[key] = ''
           }
         }
       })
@@ -939,7 +996,7 @@ const DataManagement = () => {
   // 打开存储位置选择器
   const openStoragePicker = (columnName) => {
     setCurrentStorageColumn(columnName)
-    const existing = selectedPositions[columnName] || []
+    const existing = Array.isArray(selectedPositions[columnName]) ? selectedPositions[columnName] : []
     setStoragePreSelected(existing)
     setStoragePickerVisible(true)
   }
@@ -980,6 +1037,8 @@ const DataManagement = () => {
       const updated = (prev[columnName] || []).filter(
         p => !(p.row === position.row && p.col === position.col && p.box_id === position.box_id)
       )
+      const storageValue = buildStorageValue(updated)
+      form.setFieldValue(columnName, JSON.stringify(storageValue))
       return { ...prev, [columnName]: updated }
     })
   }
