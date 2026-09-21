@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useContext } from 'react'
-import { Card, List, Button, Space, Input, Modal, Form, message, Popconfirm, Checkbox, Descriptions } from 'antd'
-import { EditOutlined, DeleteOutlined, EyeOutlined } from '@ant-design/icons'
+import { Card, List, Button, Space, Input, Modal, Form, message, Popconfirm, Checkbox, Descriptions, Tag } from 'antd'
+import { EditOutlined, DeleteOutlined, EyeOutlined, HolderOutlined, ArrowUpOutlined, ArrowDownOutlined, PlusOutlined, DatabaseOutlined } from '@ant-design/icons'
+import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import { TableContext } from '../App'
 import { useI18n } from '../i18n/I18nContext'
@@ -15,7 +16,10 @@ const DefinedTables = () => {
   const [editForm] = Form.useForm()
   const [currentTable, setCurrentTable] = useState(null)
   const [userRole, setUserRole] = useState('member')
+  const [draggedIndex, setDraggedIndex] = useState(null)
+  const [dragOverIndex, setDragOverIndex] = useState(null)
   const tableContext = useContext(TableContext)
+  const navigate = useNavigate()
   const { t } = useI18n()
 
   // 获取用户角色
@@ -40,7 +44,17 @@ const DefinedTables = () => {
           const response = await axios.delete('/api/v1/tables/all')
           if (response.data.code === 200) {
             message.success('所有表格删除成功')
-            fetchTables() // 刷新当前页面表格列表
+            try {
+              Object.keys(localStorage).forEach(key => {
+                if (key.startsWith('column_preferences_') || key === 'selectedTableId') {
+                  localStorage.removeItem(key)
+                }
+              })
+            } catch (e) {}
+            if (tableContext?.setSelectedTableId) {
+              tableContext.setSelectedTableId(null)
+            }
+            await fetchTables() // 刷新当前页面及全局表格列表
           } else {
             message.error(response.data.message)
           }
@@ -56,12 +70,15 @@ const DefinedTables = () => {
   const fetchTables = async () => {
     setLoading(true)
     try {
-      // 只调用一次API获取表格列表，不调用上下文的fetchTables
-      // 避免重复API调用和日志
+      if (tableContext?.fetchTables) {
+        const items = await tableContext.fetchTables()
+        if (items && Array.isArray(items)) {
+          setTables(items)
+          return items
+        }
+      }
       const response = await axios.get('/api/v1/tables')
-      console.log('Response data:', response.data)
       if (response.data.code === 200) {
-        // 为每个表格的列添加默认值，确保dropDown、autoIncrement和prefix属性存在
         const tablesWithDefaults = response.data.data.items.map(table => ({
           ...table,
           columns: table.columns.map(column => ({
@@ -71,8 +88,8 @@ const DefinedTables = () => {
             prefix: column.prefix || ''
           }))
         }))
-        console.log('Tables with defaults:', tablesWithDefaults)
         setTables(tablesWithDefaults)
+        return tablesWithDefaults
       } else {
         message.error(response.data.message)
       }
@@ -109,7 +126,43 @@ const DefinedTables = () => {
       tableName: table.table_name,
       columns: columnsWithDefaults
     })
+    setDraggedIndex(null)
+    setDragOverIndex(null)
     setIsEditModalVisible(true)
+  }
+
+  // 列拖拽排序处理
+  const handleDragStart = (e, index) => {
+    e.dataTransfer.setData('text/plain', String(index))
+    e.dataTransfer.effectAllowed = 'move'
+    setDraggedIndex(index)
+  }
+
+  const handleDragOver = (e, index) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (dragOverIndex !== index) {
+      setDragOverIndex(index)
+    }
+  }
+
+  const handleDragLeave = () => {
+    // 保持状态稳定
+  }
+
+  const handleDrop = (e, targetIndex, move) => {
+    e.preventDefault()
+    const sourceIndex = draggedIndex !== null ? draggedIndex : parseInt(e.dataTransfer.getData('text/plain'), 10)
+    if (!isNaN(sourceIndex) && sourceIndex !== targetIndex) {
+      move(sourceIndex, targetIndex)
+    }
+    setDraggedIndex(null)
+    setDragOverIndex(null)
+  }
+
+  const handleDragEnd = () => {
+    setDraggedIndex(null)
+    setDragOverIndex(null)
   }
   
   // 显示详情模态框
@@ -134,30 +187,39 @@ const DefinedTables = () => {
             })
             
             if (response.data.code === 200) {
-              // 数据符合要求，获取检测到的前缀
-              const detectedPrefix = response.data.data.prefix
+              const resData = response.data.data || {}
+              const unassignedCount = resData.unassigned_count || 0
+              const maxValue = resData.max_value || 0
+              const isPrefixChanged = resData.is_prefix_changed
+              const oldPrefix = resData.old_prefix || ''
+              const newPrefix = column.prefix || ''
+              const oldPrefixDisplay = oldPrefix ? `「${oldPrefix}」` : '「(无前缀/纯数字)」'
+              const newPrefixDisplay = newPrefix ? `「${newPrefix}」` : '「(无前缀/纯数字)」'
+              const sampleOld = resData.sample_old || ''
+              const sampleNew = resData.sample_new || ''
               
-              // 如果检测到的前缀与当前表单中的前缀不同，自动填充
-              if (detectedPrefix !== column.prefix) {
-                // 更新表单中的前缀值
-                editForm.setFieldsValue({
-                  columns: values.columns.map((col, idx) => {
-                    if (idx === index) {
-                      return { ...col, prefix: detectedPrefix }
-                    }
-                    return col
-                  })
-                })
-                
-                // 更新当前values对象中的前缀，以便后续处理
-                values.columns[index].prefix = detectedPrefix
+              let modalTitle = '自增列配置确认'
+              let confirmContent = ''
+
+              if (isPrefixChanged) {
+                modalTitle = '自增列前缀变更确认'
+                confirmContent = `检测到列「${column.column_name}」现有数据统一采用前缀 ${oldPrefixDisplay}。\n\n保存后系统将把该列所有现有记录的前缀从 ${oldPrefixDisplay} 批量修改为 ${newPrefixDisplay}（编号数字保持不变，例如 ${sampleOld} -> ${sampleNew}），后续新建数据也将按新前缀 ${newPrefixDisplay} 继续自增。\n\n是否确认修改？`
+                if (unassignedCount > 0) {
+                  confirmContent += `\n（同时将为 ${unassignedCount} 条尚未编号的历史记录自动按新前缀补齐编号）`
+                }
+              } else if (unassignedCount > 0) {
+                confirmContent = `列「${column.column_name}」检测到有 ${unassignedCount} 条现有记录尚未编号。保存后系统将自动按记录创建顺序依次补齐自增编号（从已有最大编号 ${maxValue} 之后继续递增），后续新建数据也将继续自增。是否确认保存？`
+              } else {
+                confirmContent = `列「${column.column_name}」所有数据均符合自增格式。后续新增数据将从已有最大编号（${maxValue}）+1 开始自增。是否确认保存？`
               }
               
-              // 数据符合要求，提示用户
-              return new Promise((resolve) => {
+              // 数据符合要求，提示用户确认
+              const userConfirmed = await new Promise((resolve) => {
                 Modal.confirm({
-                  title: '数据符合要求',
-                  content: `该列所有数据均符合要求。以后新创建数据会从已经存在的数据中除了前置字符串以外，剩下的数字中最大的一个+1开始自增。是否确认继续保存？`,
+                  title: modalTitle,
+                  content: <div style={{ whiteSpace: 'pre-line' }}>{confirmContent}</div>,
+                  okText: isPrefixChanged ? '确认修改前缀' : '确认保存',
+                  cancelText: '取消',
                   onOk() {
                     resolve(true)
                   },
@@ -166,23 +228,27 @@ const DefinedTables = () => {
                   }
                 })
               })
+
+              if (!userConfirmed) {
+                return false
+              }
             } else {
-              // 数据不符合要求，提示用户
-              message.error(response.data.message)
+              // 数据不符合要求，弹窗警告用户
+              Modal.warning({
+                title: '无法保存自增列配置',
+                content: response.data.message,
+                okText: '我知道了'
+              })
               return false
             }
           } catch (error) {
-            // 改进错误提示
-            if (error.response) {
-              // 服务器返回了错误响应
-              message.error(`数据检查失败：${error.response.data.message || '服务器错误'}`)
-            } else if (error.request) {
-              // 请求已发送但没有收到响应
-              message.error('数据检查失败：无法连接到服务器，请稍后重试')
-            } else {
-              // 请求配置出错
-              message.error(`数据检查失败：${error.message}`)
-            }
+            // 捕获错误并以警告弹窗提示用户（如存在多种编号形式）
+            const errMsg = error.response?.data?.message || (error.request ? '无法连接到服务器，请稍后重试' : error.message)
+            Modal.warning({
+              title: '无法更改前置字符串',
+              content: errMsg,
+              okText: '我知道了'
+            })
             console.error('Check auto increment error:', error)
             return false
           }
@@ -204,7 +270,15 @@ const DefinedTables = () => {
       if (response.data.code === 200) {
         message.success('表格结构更新成功')
         setIsEditModalVisible(false)
-        fetchTables() // 刷新当前页面表格列表
+        // 清理本地旧的列显示偏好缓存，让新结构（新列、列重命名、下拉属性变更）立即生效
+        try {
+          Object.keys(localStorage).forEach(key => {
+            if (key.startsWith('column_preferences_') && key.endsWith(`_${currentTable.id}`)) {
+              localStorage.removeItem(key)
+            }
+          })
+        } catch (e) {}
+        await fetchTables() // 刷新当前页面及全局表格列表
       } else {
         message.error(response.data.message)
       }
@@ -224,7 +298,18 @@ const DefinedTables = () => {
       
       if (response.data.code === 200) {
         message.success('表格结构删除成功')
-        fetchTables() // 刷新当前页面表格列表
+        try {
+          Object.keys(localStorage).forEach(key => {
+            if (key.includes(`_${tableId}`)) {
+              localStorage.removeItem(key)
+            }
+          })
+        } catch (e) {}
+        if (tableContext?.selectedTableId === tableId) {
+          tableContext.setSelectedTableId(null)
+          localStorage.removeItem('selectedTableId')
+        }
+        await fetchTables() // 刷新当前页面及全局表格列表
       } else {
         message.error(response.data.message)
       }
@@ -270,6 +355,21 @@ const DefinedTables = () => {
               title={table.table_name}
               extra={
                 <Space>
+                  <Button 
+                    type="link" 
+                    icon={<DatabaseOutlined />} 
+                    onClick={() => {
+                      if (tableContext?.setSelectedTableId) {
+                        tableContext.setSelectedTableId(table.id)
+                      }
+                      if (tableContext?.refreshTable) {
+                        tableContext.refreshTable()
+                      }
+                      navigate('/data-management')
+                    }}
+                  >
+                    进入数据
+                  </Button>
                   <Button type="link" icon={<EyeOutlined />} onClick={() => showDetailModal(table)}>
                     查看
                   </Button>
@@ -349,11 +449,17 @@ const DefinedTables = () => {
 
       {/* 编辑表格模态框 */}
       <Modal
-        title="编辑表格结构"
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <EditOutlined style={{ color: '#1890ff' }} />
+            <span>编辑表格结构</span>
+          </div>
+        }
         open={isEditModalVisible}
         onCancel={() => setIsEditModalVisible(false)}
         footer={null}
-        width={800}
+        width={940}
+        destroyOnClose
       >
         <Form 
           layout="vertical" 
@@ -364,65 +470,124 @@ const DefinedTables = () => {
             <Input placeholder="请输入总表名" />
           </Form.Item>
           
-          <Card title="列定义" style={{ marginBottom: 16 }}>
+          <Card 
+            title={
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>列定义</span>
+                <span style={{ fontSize: 12, fontWeight: 'normal', color: '#8c8c8c' }}>
+                  按住左侧把手可上下拖动调整顺序，或使用上下箭头微调
+                </span>
+              </div>
+            } 
+            style={{ marginBottom: 16 }}
+          >
             <Form.List name="columns">
-              {(fields, { add, remove }) => (
+              {(fields, { add, remove, move }) => (
                 <>
-                  {fields.map(({ key, name, ...restField }) => (
-                    <Space key={key} style={{ display: 'flex', marginBottom: 8 }} align="baseline">
+                  {fields.map(({ key, name, ...restField }, index) => (
+                    <div
+                      key={key}
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, index)}
+                      onDragOver={(e) => handleDragOver(e, index)}
+                      onDragLeave={handleDragLeave}
+                      onDrop={(e) => handleDrop(e, index, move)}
+                      onDragEnd={handleDragEnd}
+                      className={`column-definition-row ${dragOverIndex === index ? 'is-drag-over' : ''} ${draggedIndex === index ? 'is-dragging' : ''}`}
+                    >
+                      {/* 拖动把手与排序序号 */}
+                      <div className="column-drag-handle" title="按住拖拽调整列顺序">
+                        <HolderOutlined style={{ fontSize: 16 }} />
+                      </div>
+                      <Tag color="blue" style={{ margin: 0, fontWeight: 600, minWidth: 32, textAlign: 'center' }}>
+                        #{index + 1}
+                      </Tag>
+
+                      {/* 快捷上下微调按钮 */}
+                      <Space.Compact size="small" style={{ flexShrink: 0 }}>
+                        <Button 
+                          type="text" 
+                          size="small" 
+                          icon={<ArrowUpOutlined />} 
+                          disabled={index === 0} 
+                          onClick={() => move(index, index - 1)}
+                          title="上移"
+                        />
+                        <Button 
+                          type="text" 
+                          size="small" 
+                          icon={<ArrowDownOutlined />} 
+                          disabled={index === fields.length - 1} 
+                          onClick={() => move(index, index + 1)}
+                          title="下移"
+                        />
+                      </Space.Compact>
+
+                      {/* 列名输入框 */}
                       <Form.Item
                         {...restField}
                         name={[name, 'column_name']}
                         rules={[{ required: true, message: '请输入列名!' }]}
                         noStyle
                       >
-                        <Input placeholder="列名" style={{ width: 150 }} />
+                        <Input placeholder="列名" style={{ width: 140, flex: '1 1 120px' }} />
                       </Form.Item>
+
+                      {/* 数据类型 - 隐藏输入 + 紧凑Tag */}
                       <Form.Item
                         {...restField}
                         name={[name, 'data_type']}
                         noStyle
+                        initialValue="string"
                       >
-                        <Input placeholder="数据类型" style={{ width: 150 }} disabled />
+                        <Input type="hidden" />
                       </Form.Item>
-                      <Form.Item
-                        {...restField}
-                        name={[name, 'dropDown']}
-                        valuePropName="checked"
-                        noStyle
-                      >
-                        <Checkbox>下拉显示</Checkbox>
-                      </Form.Item>
-                      {/* 自增功能配置 */}
-                      <Form.Item
-                        {...restField}
-                        name={[name, 'autoIncrement']}
-                        valuePropName="checked"
-                        noStyle
-                        getValueFromEvent={(e) => {
-                          if (e.target.checked) {
-                            editForm.setFieldsValue({ columns: editForm.getFieldValue('columns').map((col, i) => i === name ? {...col, is_storage: false} : col) });
-                          }
-                          return e.target.checked;
-                        }}
-                      >
-                        <Checkbox>是否自增</Checkbox>
-                      </Form.Item>
-                      {/* 存储列配置 */}
-                      <Form.Item
-                        {...restField}
-                        name={[name, 'is_storage']}
-                        valuePropName="checked"
-                        noStyle
-                        getValueFromEvent={(e) => {
-                          if (e.target.checked) {
-                            editForm.setFieldsValue({ columns: editForm.getFieldValue('columns').map((col, i) => i === name ? {...col, autoIncrement: false} : col) });
-                          }
-                          return e.target.checked;
-                        }}
-                      >
-                        <Checkbox>存储列</Checkbox>
-                      </Form.Item>
+                      <Tag style={{ margin: 0, color: '#595959', background: '#f0f0f0', border: '1px solid #d9d9d9', height: 32, lineHeight: '30px', padding: '0 8px', flexShrink: 0 }}>
+                        文本
+                      </Tag>
+
+                      {/* 选项组：下拉显示、是否自增、存储列 - 关键：禁止文字折行 */}
+                      <div className="column-checkboxes" style={{ display: 'flex', alignItems: 'center', gap: 12, whiteSpace: 'nowrap', flexShrink: 0 }}>
+                        <Form.Item
+                          {...restField}
+                          name={[name, 'dropDown']}
+                          valuePropName="checked"
+                          noStyle
+                        >
+                          <Checkbox style={{ whiteSpace: 'nowrap' }}>下拉显示</Checkbox>
+                        </Form.Item>
+
+                        <Form.Item
+                          {...restField}
+                          name={[name, 'autoIncrement']}
+                          valuePropName="checked"
+                          noStyle
+                          getValueFromEvent={(e) => {
+                            if (e.target.checked) {
+                              editForm.setFieldsValue({ columns: editForm.getFieldValue('columns').map((col, i) => i === name ? {...col, is_storage: false} : col) });
+                            }
+                            return e.target.checked;
+                          }}
+                        >
+                          <Checkbox style={{ whiteSpace: 'nowrap' }}>是否自增</Checkbox>
+                        </Form.Item>
+
+                        <Form.Item
+                          {...restField}
+                          name={[name, 'is_storage']}
+                          valuePropName="checked"
+                          noStyle
+                          getValueFromEvent={(e) => {
+                            if (e.target.checked) {
+                              editForm.setFieldsValue({ columns: editForm.getFieldValue('columns').map((col, i) => i === name ? {...col, autoIncrement: false} : col) });
+                            }
+                            return e.target.checked;
+                          }}
+                        >
+                          <Checkbox style={{ whiteSpace: 'nowrap' }}>存储列</Checkbox>
+                        </Form.Item>
+                      </div>
+
                       {/* 前缀输入框 */}
                       <Form.Item
                         {...restField}
@@ -430,19 +595,33 @@ const DefinedTables = () => {
                         noStyle
                       >
                         <Input 
-                          placeholder="前置字符串" 
-                          style={{ width: 150, marginLeft: 8 }}
+                          placeholder="前置字符串(如SN-)" 
+                          style={{ width: 130, flexShrink: 0 }}
                         />
                       </Form.Item>
-                      <Button danger onClick={() => remove(name)} disabled={fields.length === 1}>
+
+                      {/* 删除按钮 */}
+                      <Button 
+                        danger 
+                        type="text"
+                        icon={<DeleteOutlined />}
+                        onClick={() => remove(name)} 
+                        disabled={fields.length === 1}
+                        style={{ marginLeft: 'auto', flexShrink: 0 }}
+                      >
                         删除
                       </Button>
-                    </Space>
+                    </div>
                   ))}
-                  <Form.Item>
-                    <Button type="dashed" onClick={() => add({ column_name: '', data_type: 'string', dropDown: false, autoIncrement: false, prefix: '', is_storage: false })} block>
-                        + 添加列
-                      </Button>
+                  <Form.Item style={{ marginTop: 12, marginBottom: 0 }}>
+                    <Button 
+                      type="dashed" 
+                      icon={<PlusOutlined />}
+                      onClick={() => add({ column_name: '', data_type: 'string', dropDown: false, autoIncrement: false, prefix: '', is_storage: false })} 
+                      block
+                    >
+                      + 添加列
+                    </Button>
                   </Form.Item>
                 </>
               )}

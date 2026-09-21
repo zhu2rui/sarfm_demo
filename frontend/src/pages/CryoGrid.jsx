@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Card, Button, Modal, Input, message, Popconfirm, Space, Breadcrumb, Tag, Tooltip, Select, Empty, Dropdown } from 'antd'
 import { HomeOutlined } from '@ant-design/icons'
 import { useNavigate, useParams, Link } from 'react-router-dom'
@@ -396,12 +396,12 @@ const CryoGrid = () => {
       const rowData = cell.data._row_data
       const tableCols = cell.data._table_columns || []
       for (const col of tableCols) {
-        if (!col.is_storage && rowData[col.column_name]) {
-          return rowData[col.column_name]
+        if (!col.is_storage && rowData[col.column_name] !== undefined && rowData[col.column_name] !== null && String(rowData[col.column_name]).trim() !== '') {
+          return String(rowData[col.column_name])
         }
       }
-      const vals = Object.values(rowData).filter(v => v && typeof v === 'string')
-      return vals[0] || cell.data._table_name || ''
+      const vals = Object.values(rowData).filter(v => v !== undefined && v !== null && typeof v !== 'object' && String(v).trim() !== '')
+      return String(vals[0] || cell.data._table_name || '')
     }
     // For manual cells, show reason
     if (cell.data._manual && cell.data._reason) {
@@ -415,10 +415,19 @@ const CryoGrid = () => {
     if (!cell || !cell.data) return t('cryo.empty')
     // For linked cells, show table column fields
     if (cell.data._linked && cell.data._row_data) {
-      const rowData = cell.data._row_data
+      const rowData = cell.data._row_data || {}
       const tableCols = cell.data._table_columns || []
-      const lines = tableCols.map(col => {
-        const val = rowData[col.column_name] || '-'
+      const definedCols = tableCols.filter(col => !col.is_storage)
+      const definedNames = new Set(definedCols.map(col => col.column_name))
+      const extraCols = Object.keys(rowData)
+        .filter(key => !key.startsWith('_') && !definedNames.has(key))
+        .map(key => ({ column_name: key }))
+      const allCols = [...definedCols, ...extraCols]
+      const lines = allCols.map(col => {
+        const rawVal = rowData[col.column_name]
+        const val = (rawVal !== undefined && rawVal !== null && String(rawVal).trim() !== '') 
+          ? (typeof rawVal === 'object' ? (rawVal._text || JSON.stringify(rawVal)) : String(rawVal)) 
+          : '-'
         return `${col.column_name}: ${val}`
       })
       return lines.join('\n')
@@ -426,7 +435,8 @@ const CryoGrid = () => {
     // For regular cells, show box column fields
     const columns = gridData?.columns || []
     const lines = columns.map(col => {
-      const val = cell.data[col.column_name] || '-'
+      const rawVal = cell.data[col.column_name]
+      const val = (rawVal !== undefined && rawVal !== null && String(rawVal).trim() !== '') ? String(rawVal) : '-'
       return `${col.column_name}: ${val}`
     })
     return lines.join('\n')
@@ -606,13 +616,26 @@ const CryoGrid = () => {
                               {ROW_LABELS[rowIdx]}{colIdx + 1}
                               {isLinked ? ' (关联)' : isManual ? ' (手动)' : isOccupied ? ` (${t('cryo.occupied')})` : ` (${t('cryo.empty')})`}
                             </div>
-                            {isLinked && cell.data._row_data && cell.data._table_columns
-                              ? cell.data._table_columns
-                                  .filter(col => !col.is_storage)
-                                  .map(col => {
-                                    const val = cell.data._row_data[col.column_name] || '-'
-                                    return <div key={col.column_name}>{col.column_name}: {val}</div>
+                            {isLinked && cell.data._row_data
+                              ? (() => {
+                                  const rowData = cell.data._row_data || {}
+                                  const tableCols = cell.data._table_columns || []
+                                  const definedCols = tableCols.filter(col => !col.is_storage)
+                                  const definedNames = new Set(definedCols.map(col => col.column_name))
+                                  const extraCols = Object.keys(rowData)
+                                    .filter(key => !key.startsWith('_') && !definedNames.has(key))
+                                    .map(key => ({ column_name: key }))
+                                  const renderCols = [...definedCols, ...extraCols]
+
+                                  return renderCols.map(col => {
+                                    const rawVal = rowData[col.column_name]
+                                    let displayVal = '-'
+                                    if (rawVal !== undefined && rawVal !== null && String(rawVal).trim() !== '') {
+                                      displayVal = typeof rawVal === 'object' ? (rawVal._text || JSON.stringify(rawVal)) : String(rawVal)
+                                    }
+                                    return <div key={col.column_name}>{col.column_name}: {displayVal}</div>
                                   })
+                                })()
                               : isManual && cell.data._reason
                                 ? <div>原因: {cell.data._reason}</div>
                                 : isOccupied && <div>占位原因: {getCellDisplayText(cell)}</div>

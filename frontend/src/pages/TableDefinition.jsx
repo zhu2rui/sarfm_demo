@@ -1,11 +1,14 @@
 import React, { useState, useContext } from 'react'
-import { Card, Button, Input, Form, Space, message, Checkbox } from 'antd'
+import { Card, Button, Input, Form, Space, message, Checkbox, Tag } from 'antd'
+import { HolderOutlined, ArrowUpOutlined, ArrowDownOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons'
 import axios from 'axios'
 import { TableContext } from '../App'
 import { useI18n } from '../i18n/I18nContext'
 
 const TableDefinition = () => {
   const [form] = Form.useForm()
+  const [draggedIndex, setDraggedIndex] = useState(null)
+  const [dragOverIndex, setDragOverIndex] = useState(null)
   const tableContext = useContext(TableContext)
   const fetchTables = tableContext?.fetchTables || (() => {})
   const { t } = useI18n()
@@ -14,6 +17,40 @@ const TableDefinition = () => {
   const initialValues = {
     tableName: '',
     columns: [{ column_name: '', data_type: 'string', dropDown: false, autoIncrement: false, prefix: '', is_storage: false }]
+  }
+
+  // 列拖拽排序处理
+  const handleDragStart = (e, index) => {
+    e.dataTransfer.setData('text/plain', String(index))
+    e.dataTransfer.effectAllowed = 'move'
+    setDraggedIndex(index)
+  }
+
+  const handleDragOver = (e, index) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (dragOverIndex !== index) {
+      setDragOverIndex(index)
+    }
+  }
+
+  const handleDragLeave = () => {
+    // 保持状态稳定
+  }
+
+  const handleDrop = (e, targetIndex, move) => {
+    e.preventDefault()
+    const sourceIndex = draggedIndex !== null ? draggedIndex : parseInt(e.dataTransfer.getData('text/plain'), 10)
+    if (!isNaN(sourceIndex) && sourceIndex !== targetIndex) {
+      move(sourceIndex, targetIndex)
+    }
+    setDraggedIndex(null)
+    setDragOverIndex(null)
+  }
+
+  const handleDragEnd = () => {
+    setDraggedIndex(null)
+    setDragOverIndex(null)
   }
 
   // 提交表格结构
@@ -27,7 +64,7 @@ const TableDefinition = () => {
       if (response.data.code === 200) {
         message.success(t('tableDefinition.success'))
         form.resetFields()
-        fetchTables() // 刷新侧边栏表格列表
+        await fetchTables() // 刷新侧边栏表格列表
       } else {
         message.error(response.data.message)
       }
@@ -49,83 +86,156 @@ const TableDefinition = () => {
           <Input placeholder={t('tableDefinition.tableName')} />
         </Form.Item>
         
-        <Card title={t('tableDefinition.columnName')} style={{ marginBottom: 16 }}>
+        <Card 
+          title={
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+              <span>{t('tableDefinition.columnName')}</span>
+              <span style={{ fontSize: 12, fontWeight: 'normal', color: '#8c8c8c' }}>
+                按住左侧把手可上下拖动调整顺序，或使用上下箭头微调
+              </span>
+            </div>
+          } 
+          style={{ marginBottom: 16 }}
+        >
           <Form.List name="columns">
-            {(fields, { add, remove }) => (
+            {(fields, { add, remove, move }) => (
               <>
-                {fields.map(({ key, name, ...restField }) => (
-                  <Space key={key} style={{ display: 'flex', marginBottom: 8 }} align="baseline">
+                {fields.map(({ key, name, ...restField }, index) => (
+                  <div
+                    key={key}
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, index)}
+                    onDragOver={(e) => handleDragOver(e, index)}
+                    onDragLeave={handleDragLeave}
+                    onDrop={(e) => handleDrop(e, index, move)}
+                    onDragEnd={handleDragEnd}
+                    className={`column-definition-row ${dragOverIndex === index ? 'is-drag-over' : ''} ${draggedIndex === index ? 'is-dragging' : ''}`}
+                  >
+                    {/* 拖动把手与排序序号 */}
+                    <div className="column-drag-handle" title="按住拖拽调整列顺序">
+                      <HolderOutlined style={{ fontSize: 16 }} />
+                    </div>
+                    <Tag color="blue" style={{ margin: 0, fontWeight: 600, minWidth: 32, textAlign: 'center' }}>
+                      #{index + 1}
+                    </Tag>
+
+                    {/* 快捷上下微调按钮 */}
+                    <Space.Compact size="small" style={{ flexShrink: 0 }}>
+                      <Button 
+                        type="text" 
+                        size="small" 
+                        icon={<ArrowUpOutlined />} 
+                        disabled={index === 0} 
+                        onClick={() => move(index, index - 1)}
+                        title="上移"
+                      />
+                      <Button 
+                        type="text" 
+                        size="small" 
+                        icon={<ArrowDownOutlined />} 
+                        disabled={index === fields.length - 1} 
+                        onClick={() => move(index, index + 1)}
+                        title="下移"
+                      />
+                    </Space.Compact>
+
+                    {/* 列名输入框 */}
                     <Form.Item
                       {...restField}
                       name={[name, 'column_name']}
                       rules={[{ required: true, message: t('tableDefinition.columnNameRequired') }]}
                       noStyle
                     >
-                      <Input placeholder={t('tableDefinition.columnName')} style={{ width: 150 }} />
+                      <Input placeholder={t('tableDefinition.columnName')} style={{ width: 140, flex: '1 1 120px' }} />
                     </Form.Item>
+
+                    {/* 数据类型 - 隐藏输入 + 紧凑Tag */}
                     <Form.Item
                       {...restField}
                       name={[name, 'data_type']}
                       noStyle
+                      initialValue="string"
                     >
-                      <Input placeholder={t('tableDefinition.columnType')} style={{ width: 150 }} disabled />
+                      <Input type="hidden" />
                     </Form.Item>
-                    <Form.Item
-                      {...restField}
-                      name={[name, 'dropDown']}
-                      valuePropName="checked"
-                      noStyle
-                    >
-                      <Checkbox>下拉显示</Checkbox>
-                    </Form.Item>
-                    {/* 自增功能配置 */}
-                    <Form.Item
-                      {...restField}
-                      name={[name, 'autoIncrement']}
-                      valuePropName="checked"
-                      noStyle
-                      getValueFromEvent={(e) => {
-                        if (e.target.checked) {
-                          form.setFieldsValue({ columns: form.getFieldValue('columns').map((col, i) => i === name ? {...col, is_storage: false} : col) });
-                        }
-                        return e.target.checked;
-                      }}
-                    >
-                      <Checkbox>是否自增</Checkbox>
-                    </Form.Item>
-                    {/* 存储列配置 */}
-                    <Form.Item
-                      {...restField}
-                      name={[name, 'is_storage']}
-                      valuePropName="checked"
-                      noStyle
-                      getValueFromEvent={(e) => {
-                        if (e.target.checked) {
-                          form.setFieldsValue({ columns: form.getFieldValue('columns').map((col, i) => i === name ? {...col, autoIncrement: false} : col) });
-                        }
-                        return e.target.checked;
-                      }}
-                    >
-                      <Checkbox>{t('tableDefinition.storageColumn')}</Checkbox>
-                    </Form.Item>
-                    {/* 前缀输入框 - 简化实现，直接显示 */}
+                    <Tag style={{ margin: 0, color: '#595959', background: '#f0f0f0', border: '1px solid #d9d9d9', height: 32, lineHeight: '30px', padding: '0 8px', flexShrink: 0 }}>
+                      文本
+                    </Tag>
+
+                    {/* 选项组：下拉显示、是否自增、存储列 - 关键：禁止文字折行 */}
+                    <div className="column-checkboxes" style={{ display: 'flex', alignItems: 'center', gap: 12, whiteSpace: 'nowrap', flexShrink: 0 }}>
+                      <Form.Item
+                        {...restField}
+                        name={[name, 'dropDown']}
+                        valuePropName="checked"
+                        noStyle
+                      >
+                        <Checkbox style={{ whiteSpace: 'nowrap' }}>下拉显示</Checkbox>
+                      </Form.Item>
+
+                      <Form.Item
+                        {...restField}
+                        name={[name, 'autoIncrement']}
+                        valuePropName="checked"
+                        noStyle
+                        getValueFromEvent={(e) => {
+                          if (e.target.checked) {
+                            form.setFieldsValue({ columns: form.getFieldValue('columns').map((col, i) => i === name ? {...col, is_storage: false} : col) });
+                          }
+                          return e.target.checked;
+                        }}
+                      >
+                        <Checkbox style={{ whiteSpace: 'nowrap' }}>是否自增</Checkbox>
+                      </Form.Item>
+
+                      <Form.Item
+                        {...restField}
+                        name={[name, 'is_storage']}
+                        valuePropName="checked"
+                        noStyle
+                        getValueFromEvent={(e) => {
+                          if (e.target.checked) {
+                            form.setFieldsValue({ columns: form.getFieldValue('columns').map((col, i) => i === name ? {...col, autoIncrement: false} : col) });
+                          }
+                          return e.target.checked;
+                        }}
+                      >
+                        <Checkbox style={{ whiteSpace: 'nowrap' }}>{t('tableDefinition.storageColumn')}</Checkbox>
+                      </Form.Item>
+                    </div>
+
+                    {/* 前缀输入框 */}
                     <Form.Item
                       {...restField}
                       name={[name, 'prefix']}
                       noStyle
                     >
                       <Input 
-                        placeholder="前置字符串" 
-                        style={{ width: 150, marginLeft: 8 }}
+                        placeholder="前置字符串(如SN-)" 
+                        style={{ width: 130, flexShrink: 0 }}
                       />
                     </Form.Item>
-                    <Button danger onClick={() => remove(name)} disabled={fields.length === 1}>
+
+                    {/* 删除按钮 */}
+                    <Button 
+                      danger 
+                      type="text"
+                      icon={<DeleteOutlined />}
+                      onClick={() => remove(name)} 
+                      disabled={fields.length === 1}
+                      style={{ marginLeft: 'auto', flexShrink: 0 }}
+                    >
                       {t('dataManagement.deleteData')}
                     </Button>
-                  </Space>
+                  </div>
                 ))}
-                <Form.Item>
-                  <Button type="dashed" onClick={() => add({ column_name: '', data_type: 'string', dropDown: false, autoIncrement: false, prefix: '', is_storage: false })} block>
+                <Form.Item style={{ marginTop: 12, marginBottom: 0 }}>
+                  <Button 
+                    type="dashed" 
+                    icon={<PlusOutlined />}
+                    onClick={() => add({ column_name: '', data_type: 'string', dropDown: false, autoIncrement: false, prefix: '', is_storage: false })} 
+                    block
+                  >
                     {t('tableDefinition.addColumn')}
                   </Button>
                 </Form.Item>

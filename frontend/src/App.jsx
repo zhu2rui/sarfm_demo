@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
-import { Layout, Menu, Button, Form, Input, Card, Typography, message, Checkbox, Select, Modal, Table, Dropdown } from 'antd'
-import { UserOutlined, LockOutlined, DatabaseOutlined, BarChartOutlined, MenuOutlined, BugOutlined, CheckCircleOutlined, ExperimentOutlined } from '@ant-design/icons'
+import { Layout, Menu, Button, Form, Input, Card, Typography, message, Checkbox, Select, Modal, Table, Dropdown, Drawer, Avatar, Tag, Space } from 'antd'
+import { UserOutlined, LockOutlined, DatabaseOutlined, BarChartOutlined, MenuOutlined, BugOutlined, CheckCircleOutlined, ExperimentOutlined, DownOutlined, SettingOutlined, LogoutOutlined, KeyOutlined, GlobalOutlined } from '@ant-design/icons'
 import { BrowserRouter as Router, Routes, Route, Navigate, Link, useNavigate, useLocation } from 'react-router-dom'
 import axios from 'axios'
 import TableDefinition from './pages/TableDefinition'
@@ -207,6 +207,8 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn, t, lang, changeLang }) => {
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
   
+  const [tableRefreshKey, setTableRefreshKey] = useState(0)
+
   // 监听路由变化，重置 selectedTableId
   React.useEffect(() => {
     const handleRouteChange = () => {
@@ -240,14 +242,17 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn, t, lang, changeLang }) => {
           }))
         }))
         setTables(tablesWithDefaults)
+        return tablesWithDefaults
       } else {
         message.error(response.data.message)
         setTables([])
+        return []
       }
     } catch (error) {
       console.error('Fetch tables error:', error)
       message.error('获取表格列表失败')
       setTables([])
+      return []
     }
   }, [])
 
@@ -441,6 +446,8 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn, t, lang, changeLang }) => {
   const handleTableClick = (tableId) => {
     setSelectedTableId(tableId)
     setMobileMenuVisible(false)
+    setTableRefreshKey(prev => prev + 1)
+    fetchTables()
     navigate('/data-management')
   }
 
@@ -455,20 +462,250 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn, t, lang, changeLang }) => {
     setMobileMenuVisible(false)
   }
 
+  const currentUser = (() => {
+    try {
+      const u = localStorage.getItem('user');
+      return u ? JSON.parse(u) : null;
+    } catch (e) {
+      return null;
+    }
+  })();
+
+  const userDropdownItems = [
+    {
+      key: 'user-info',
+      disabled: true,
+      label: (
+        <div style={{ padding: '4px 0', color: '#333' }}>
+          <div style={{ fontWeight: 600, fontSize: 14 }}>{currentUser?.username || '用户'}</div>
+          <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>
+            身份: <Tag color={currentUser?.role === 'admin' ? 'gold' : currentUser?.role === 'leader' ? 'blue' : 'default'} style={{ margin: 0, fontSize: 11 }}>
+              {currentUser?.role === 'admin' ? '系统管理员' : currentUser?.role === 'leader' ? '项目组长' : '实验员'}
+            </Tag>
+          </div>
+        </div>
+      )
+    },
+    { type: 'divider' },
+    {
+      key: 'change-password',
+      icon: <KeyOutlined />,
+      label: t('menu.changePassword'),
+      onClick: () => navigate('/change-password')
+    },
+    {
+      key: 'lang-switch',
+      icon: <GlobalOutlined />,
+      label: lang === 'zh' ? 'Switch to English' : '切换为中文',
+      onClick: () => changeLang(lang === 'zh' ? 'en' : 'zh')
+    },
+    {
+      key: 'bug-feedback',
+      icon: <BugOutlined />,
+      label: 'Bug 反馈',
+      onClick: showBugModal
+    },
+    ...(currentUser?.role === 'admin' ? [{
+      key: 'bug-list-admin',
+      icon: <BugOutlined style={{ color: '#faad14' }} />,
+      label: 'Bug 列表 (管理员)',
+      onClick: showBugList
+    }] : []),
+    { type: 'divider' },
+    {
+      key: 'logout',
+      danger: true,
+      icon: <LogoutOutlined />,
+      label: t('header.logout'),
+      onClick: handleLogout
+    }
+  ];
+
+  const getMenuItems = (closeMenu = () => {}) => {
+    const userStr = localStorage.getItem('user');
+    let user = null;
+    try {
+      user = userStr ? JSON.parse(userStr) : null;
+    } catch (e) {
+      user = null;
+    }
+    const isAdmin = user && user.role === 'admin';
+
+    return [
+      {
+        key: '1',
+        icon: <DatabaseOutlined />,
+        label: <Link to="/table-definition" onClick={closeMenu}>{t('menu.tableDefinition')}</Link>
+      },
+      {
+        key: '2',
+        icon: <DatabaseOutlined />,
+        label: <Link to="/defined-tables" onClick={closeMenu}>{t('menu.definedTables')}</Link>
+      },
+      {
+        key: '3',
+        icon: <DatabaseOutlined />,
+        label: t('menu.dataManagement'),
+        children: tables.length === 0 ? [
+          {
+            key: '3-empty',
+            disabled: true,
+            label: t('tableDefinition.noTables')
+          }
+        ] : tables.map(table => ({
+          key: `table-${table.id}`,
+          icon: <DatabaseOutlined />,
+          label: table.table_name,
+          onClick: () => {
+            handleTableClick(table.id);
+            closeMenu();
+          }
+        }))
+      },
+      {
+        key: '4',
+        icon: <BarChartOutlined />,
+        label: <Link to="/reports" onClick={closeMenu}>{t('menu.reports')}</Link>
+      },
+      {
+        key: '7',
+        icon: <ExperimentOutlined />,
+        label: <Link to="/cryo-management" onClick={closeMenu}>{t('cryo.title')}</Link>
+      },
+      ...(isAdmin ? [{
+        key: '5',
+        icon: <UserOutlined />,
+        label: <Link to="/user-management" onClick={closeMenu}>{t('menu.userManagement')}</Link>
+      }] : []),
+      {
+        key: '6',
+        icon: <SettingOutlined />,
+        label: t('menu.settings'),
+        children: [
+          {
+            key: '6-0',
+            label: <Link to="/change-password" onClick={closeMenu}>{t('menu.changePassword')}</Link>
+          },
+          ...(isAdmin ? [
+            {
+              key: '6-1',
+              label: t('menu.exportAllData'),
+              onClick: () => {
+                closeMenu();
+                axios.get('/api/v1/export-all-data', { responseType: 'blob' })
+                  .then(response => {
+                    if (response.status === 200) {
+                      const url = window.URL.createObjectURL(response.data);
+                      const link = document.createElement('a');
+                      link.href = url;
+                      link.setAttribute('download', 'all_data.xlsx');
+                      document.body.appendChild(link);
+                      link.click();
+                      link.remove();
+                      message.success('所有数据导出成功');
+                    } else {
+                      message.error(`导出失败，错误码: ${response.status}`);
+                    }
+                  })
+                  .catch(error => {
+                    console.error('Export error:', error);
+                    message.error('导出失败');
+                  });
+              }
+            },
+            {
+              key: '6-2',
+              label: t('menu.importData'),
+              onClick: () => {
+                closeMenu();
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = '.xlsx, .xls';
+                input.onchange = (e) => {
+                  const file = e.target.files[0];
+                  if (file) {
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    axios.post('/api/v1/import-data', formData, {
+                      headers: {
+                        'Content-Type': 'multipart/form-data'
+                      }
+                    })
+                    .then(response => {
+                      if (response.data.code === 200) {
+                        message.success(t('dataManagement.successAdd'));
+                        fetchTables();
+                      } else {
+                        message.error(response.data.message);
+                      }
+                    })
+                    .catch(error => {
+                      console.error('Import error:', error);
+                      message.error(t('dataManagement.importFailed'));
+                    });
+                  }
+                };
+                input.click();
+              }
+            },
+            {
+              key: '6-3',
+              label: '数据库备份',
+              onClick: () => {
+                closeMenu();
+                navigate('/database-backup');
+              }
+            }
+          ] : []),
+          {
+            key: '6-bug',
+            icon: <BugOutlined />,
+            label: (
+              <span
+                style={{ cursor: 'pointer' }}
+                onClick={() => {
+                  closeMenu();
+                  showBugModal();
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  closeMenu();
+                  showBugList();
+                }}
+              >
+                Bug反馈
+              </span>
+            )
+          }
+        ]
+      }
+    ];
+  };
+
   return (
-    <TableContext.Provider value={{ tables, selectedTableId, setSelectedTableId, fetchTables }}>
+    <TableContext.Provider value={{
+      tables,
+      selectedTableId,
+      setSelectedTableId,
+      fetchTables,
+      tableRefreshKey,
+      setTableRefreshKey,
+      refreshTable: () => {
+        setTableRefreshKey(prev => prev + 1)
+        return fetchTables()
+      }
+    }}>
       <Layout style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }} className="app-layout">
-        <Header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#001529', padding: '0 16px' }}>
+        <Header className="app-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#001529', padding: '0 16px', position: 'sticky', top: 0, zIndex: 999 }}>
           <div style={{ display: 'flex', alignItems: 'center' }}>
-            {/* 通用菜单按钮，控制桌面端折叠和移动端显示 */}
+            {/* 通用菜单按钮，控制桌面端折叠和移动端抽屉显示 */}
             <Button 
               type="text" 
               icon={<MenuOutlined />} 
-              style={{ color: 'white', fontSize: '18px', marginRight: '16px' }}
+              style={{ color: 'white', fontSize: '18px', marginRight: '12px' }}
               className="menu-btn mobile-menu-btn"
               onClick={(e) => {
                 e.stopPropagation();
-                // 桌面端折叠/展开，移动端显示/隐藏
                 if (window.innerWidth > 768) {
                   setCollapsed(!collapsed);
                 } else {
@@ -476,30 +713,64 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn, t, lang, changeLang }) => {
                 }
               }}
             />
-            <Title level={4} style={{ color: 'white', margin: 0, fontSize: '18px' }}>{t('header.systemTitle')}</Title>
+            <div className="brand-badge">
+              <DatabaseOutlined />
+            </div>
+            <Title level={4} style={{ color: 'white', margin: 0, fontSize: '18px', display: 'flex', alignItems: 'center' }}>
+              <span>{t('header.systemTitle')}</span>
+            </Title>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            {/* 语言切换 */}
+            {/* 语言快速切换 */}
             <Select
               value={lang}
               onChange={changeLang}
-              style={{ width: '100px' }}
+              style={{ width: '90px' }}
               options={[
                 { value: 'zh', label: '中文' },
                 { value: 'en', label: 'English' }
               ]}
               className="language-select"
             />
-            <Button 
-              type="primary" 
-              onClick={handleLogout}
-              size="small"
-              style={{ minWidth: '80px' }}
-            >
-              {t('header.logout')}
-            </Button>
+            {/* 用户下拉菜单 */}
+            <Dropdown menu={{ items: userDropdownItems }} placement="bottomRight" arrow trigger={['click']}>
+              <div className="header-user-pill">
+                <Avatar 
+                  size={26} 
+                  style={{ backgroundColor: currentUser?.role === 'admin' ? '#d97706' : '#0d9488', verticalAlign: 'middle', fontSize: 13 }}
+                  icon={<UserOutlined />} 
+                />
+                <span className="header-username" style={{ fontWeight: 500 }}>{currentUser?.username || '用户'}</span>
+                <DownOutlined style={{ fontSize: 10, color: 'rgba(255, 255, 255, 0.65)' }} />
+              </div>
+            </Dropdown>
           </div>
         </Header>
+
+        {/* 移动端导航抽屉 */}
+        <Drawer
+          title={
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div className="brand-badge" style={{ margin: 0, width: 26, height: 26, fontSize: 14 }}>
+                <DatabaseOutlined />
+              </div>
+              <span style={{ color: '#fff', fontSize: 15, fontWeight: 600 }}>{t('header.systemTitle')}</span>
+            </div>
+          }
+          placement="left"
+          closable={true}
+          onClose={() => setMobileMenuVisible(false)}
+          open={mobileMenuVisible}
+          width={280}
+          className="mobile-nav-drawer"
+        >
+          <Menu
+            theme="dark"
+            mode="inline"
+            items={getMenuItems(() => setMobileMenuVisible(false))}
+          />
+        </Drawer>
+
         <Layout style={{ display: 'flex', flex: 1, minHeight: 0 }}>
           {/* 桌面端侧边栏 */}
           <Sider 
@@ -510,195 +781,19 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn, t, lang, changeLang }) => {
             breakpoint="lg"
             collapsedWidth="64"
             width={200}
-            trigger={null} // 移除默认触发器，我们将在sidebar内部自定义
+            trigger={null}
             style={{ 
-              height: 'auto', // 让侧边栏自动适应父容器高度
+              height: 'auto',
               display: 'flex',
               flexDirection: 'column',
-              alignSelf: 'stretch' // 让侧边栏在交叉轴方向（垂直方向）拉伸
+              alignSelf: 'stretch'
             }}
           >
-            <div className="logo" />
-            {/* 侧边栏菜单容器，使用flex-grow: 1确保它能占据所有剩余空间 */}
             <div style={{ flex: '1', overflowY: 'auto' }}>
-              <Menu theme="dark" mode="inline" items={[
-                {
-                  key: '1',
-                  icon: <DatabaseOutlined />,
-                  label: <Link to="/table-definition">{t('menu.tableDefinition')}</Link>
-                },
-                {
-                  key: '2',
-                  icon: <DatabaseOutlined />,
-                  label: <Link to="/defined-tables">{t('menu.definedTables')}</Link>
-                },
-                {
-                  key: '3',
-                  icon: <DatabaseOutlined />,
-                  label: t('menu.dataManagement'),
-                  children: tables.length === 0 ? [
-                    {
-                      key: '3-1',
-                      disabled: true,
-                      label: t('tableDefinition.noTables')
-                    }
-                  ] : tables.map(table => ({
-                    key: `table-${table.id}`,
-                    icon: <DatabaseOutlined />,
-                    label: table.table_name,
-                    onClick: () => handleTableClick(table.id)
-                  }))
-                },
-                {
-                  key: '4',
-                  icon: <BarChartOutlined />,
-                  label: <Link to="/reports">{t('menu.reports')}</Link>
-                },
-                {
-                  key: '7',
-                  icon: <ExperimentOutlined />,
-                  label: <Link to="/cryo-management">{t('cryo.title')}</Link>
-                },
-                ...(() => {
-                  const user = JSON.parse(localStorage.getItem('user'));
-                  if (user && user.role === 'admin') {
-                    return [{
-                      key: '5',
-                      icon: <UserOutlined />,
-                      label: <Link to="/user-management">{t('menu.userManagement')}</Link>
-                    }];
-                  }
-                  return [];
-                })(),
-                {
-                  key: '6',
-                  icon: <UserOutlined />,
-                  label: t('menu.settings'),
-                  children: [
-                    {
-                      key: '6-0',
-                      label: <Link to="/change-password">{t('menu.changePassword')}</Link>
-                    },
-                    ...(() => {
-                      const user = JSON.parse(localStorage.getItem('user'));
-                      console.log('菜单渲染 - 用户信息:', user);
-                      if (user && user.role === 'admin') {
-                        return [
-                          {
-                            key: '6-1',
-                            label: t('menu.exportAllData'),
-                            onClick: () => {
-                              // 导出所有数据
-                              axios.get('/api/v1/export-all-data', { responseType: 'blob' })
-                                .then(response => {
-                                  // 检查响应状态码
-                                  if (response.status === 200) {
-                                    // 是Excel文件，正常处理下载
-                                    const url = window.URL.createObjectURL(response.data);
-                                    const link = document.createElement('a');
-                                    link.href = url;
-                                    link.setAttribute('download', 'all_data.xlsx');
-                                    document.body.appendChild(link);
-                                    link.click();
-                                    link.remove();
-                                    message.success('所有数据导出成功');
-                                  } else {
-                                    // 处理非200状态码
-                                    message.error(`导出失败，错误码: ${response.status}`);
-                                  }
-                                })
-                                .catch(error => {
-                                  console.error('Export error:', error);
-                                  // 处理不同类型的错误
-                                  if (error.response) {
-                                    // 服务器返回错误状态码
-                                    if (error.response.status === 403) {
-                                      message.error('权限不足，只有管理员可以执行此操作');
-                                    } else if (error.response.status === 500) {
-                                      message.error('服务器内部错误，请联系管理员');
-                                    } else {
-                                      message.error(`导出失败，错误码: ${error.response.status}`);
-                                    }
-                                  } else if (error.request) {
-                                    // 请求已发送但没有收到响应
-                                    message.error('网络异常，服务器没有响应，请检查网络连接');
-                                  } else {
-                                    // 请求配置错误
-                                    message.error(`导出失败: ${error.message}`);
-                                  }
-                                });
-                            }
-                          },
-                          {
-                            key: '6-2',
-                            label: t('menu.importData'),
-                            onClick: () => {
-                              // 导入数据
-                              const input = document.createElement('input');
-                              input.type = 'file';
-                              input.accept = '.xlsx, .xls';
-                              input.onchange = (e) => {
-                                const file = e.target.files[0];
-                                if (file) {
-                                  const formData = new FormData();
-                                  formData.append('file', file);
-                                     
-                                  axios.post('/api/v1/import-data', formData, {
-                                    headers: {
-                                      'Content-Type': 'multipart/form-data'
-                                    }
-                                  })
-                                  .then(response => {
-                                    if (response.data.code === 200) {
-                                      message.success(t('dataManagement.successAdd'));
-                                      // 刷新表格列表
-                                      fetchTables();
-                                    } else {
-                                      message.error(response.data.message);
-                                    }
-                                  })
-                                  .catch(error => {
-                                    console.error('Import error:', error);
-                                    message.error(t('dataManagement.importFailed'));
-                                  });
-                                }
-                              };
-                              input.click();
-                            }
-                          },
-                          {
-                            key: '6-3',
-                            label: '数据库备份',
-                            onClick: () => {
-                              navigate('/database-backup')
-                            }
-                          }
-                        ];
-                      }
-                      return [];
-                    })(),
-                    {
-                      key: '6-3',
-                      icon: <BugOutlined />,
-                      label: (
-                        <span
-                          style={{ cursor: 'pointer' }}
-                          onClick={showBugModal}
-                          onContextMenu={(e) => {
-                            e.preventDefault();
-                            showBugList();
-                          }}
-                        >
-                          Bug反馈
-                        </span>
-                      )
-                    }
-                  ]
-                }
-              ]} />
+              <Menu theme="dark" mode="inline" items={getMenuItems()} />
             </div>
             
-            {/* 侧边栏内部的折叠按钮 - 移除绝对定位，让它成为内容的一部分 */}
+            {/* 侧边栏内部的折叠按钮 */}
             <div 
               className="sidebar-collapse-trigger"
               onClick={() => setCollapsed(!collapsed)}
@@ -725,204 +820,6 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn, t, lang, changeLang }) => {
           </Sider>
           
           <Layout style={{ padding: '0' }}>
-            {/* 移动端侧边栏 - 使用条件渲染代替visible属性 */}
-            {mobileMenuVisible && (
-              <Sider 
-                theme="dark"
-                width="250px"
-                className="mobile-sider"
-                trigger={null}
-                style={{
-                  position: 'fixed',
-                  top: 64,
-                  left: 0,
-                  height: 'calc(100vh - 64px)',
-                  zIndex: 1001,
-                  animation: 'antSlideLeftIn 0.3s ease-out'
-                }}
-              >
-                <div className="logo" />
-                <Menu theme="dark" mode="inline" items={[
-                  {
-                    key: 'm1',
-                    icon: <DatabaseOutlined />,
-                    label: <Link to="/table-definition" onClick={() => setMobileMenuVisible(false)}>{t('menu.tableDefinition')}</Link>
-                  },
-                  {
-                    key: 'm2',
-                    icon: <DatabaseOutlined />,
-                    label: <Link to="/defined-tables" onClick={() => setMobileMenuVisible(false)}>{t('menu.definedTables')}</Link>
-                  },
-                  {
-                    key: 'm3',
-                    icon: <DatabaseOutlined />,
-                    label: t('menu.dataManagement'),
-                    children: tables.length === 0 ? [
-                      {
-                        key: 'm3-1',
-                        disabled: true,
-                        label: t('tableDefinition.noTables')
-                      }
-                    ] : tables.map(table => ({
-                      key: `m-table-${table.id}`,
-                      icon: <DatabaseOutlined />,
-                      label: table.table_name,
-                      onClick: () => handleTableClick(table.id)
-                    }))
-                  },
-                  {
-                    key: 'm4',
-                    icon: <BarChartOutlined />,
-                    label: <Link to="/reports" onClick={() => setMobileMenuVisible(false)}>{t('menu.reports')}</Link>
-                  },
-                  {
-                    key: 'm7',
-                    icon: <ExperimentOutlined />,
-                    label: <Link to="/cryo-management" onClick={() => setMobileMenuVisible(false)}>{t('cryo.title')}</Link>
-                  },
-                  ...(() => {
-                    const user = JSON.parse(localStorage.getItem('user'));
-                    if (user && user.role === 'admin') {
-                      return [{
-                        key: 'm5',
-                        icon: <UserOutlined />,
-                        label: <Link to="/user-management" onClick={() => setMobileMenuVisible(false)}>{t('menu.userManagement')}</Link>
-                      }];
-                    }
-                    return [];
-                  })(),
-                  {
-                    key: 'm6',
-                    icon: <UserOutlined />,
-                    label: t('menu.settings'),
-                    style: { marginTop: 'auto' },
-                    children: [
-                      {
-                        key: 'm6-0',
-                        label: <Link to="/change-password" onClick={() => setMobileMenuVisible(false)}>{t('menu.changePassword')}</Link>
-                      },
-                      ...(() => {
-                        const user = JSON.parse(localStorage.getItem('user'));
-                        if (user && user.role === 'admin') {
-                          return [
-                            {
-                              key: 'm6-1',
-                              label: t('menu.exportAllData'),
-                              onClick: () => {
-                                // 导出所有数据
-                                setMobileMenuVisible(false);
-                                axios.get('/api/v1/export-all-data', { responseType: 'blob' })
-                                  .then(response => {
-                                    // 检查响应状态码
-                                    if (response.status === 200) {
-                                      // 是Excel文件，正常处理下载
-                                      const url = window.URL.createObjectURL(response.data);
-                                      const link = document.createElement('a');
-                                      link.href = url;
-                                      link.setAttribute('download', 'all_data.xlsx');
-                                      document.body.appendChild(link);
-                                      link.click();
-                                      link.remove();
-                                      message.success('所有数据导出成功');
-                                    } else {
-                                      // 处理非200状态码
-                                      message.error(`导出失败，错误码: ${response.status}`);
-                                    }
-                                  })
-                                  .catch(error => {
-                                    console.error('Export error:', error);
-                                    // 处理不同类型的错误
-                                    if (error.response) {
-                                      // 服务器返回错误状态码
-                                      if (error.response.status === 403) {
-                                        message.error('权限不足，只有管理员可以执行此操作');
-                                      } else if (error.response.status === 500) {
-                                        message.error('服务器内部错误，请联系管理员');
-                                      } else {
-                                        message.error(`导出失败，错误码: ${error.response.status}`);
-                                      }
-                                    } else if (error.request) {
-                                      // 请求已发送但没有收到响应
-                                      message.error('网络异常，服务器没有响应，请检查网络连接');
-                                    } else {
-                                      // 请求配置错误
-                                      message.error(`导出失败: ${error.message}`);
-                                    }
-                                  });
-                              }
-                            },
-                            {
-                              key: 'm6-2',
-                              label: t('menu.importData'),
-                              onClick: () => {
-                                // 导入数据
-                                setMobileMenuVisible(false);
-                                const input = document.createElement('input');
-                                input.type = 'file';
-                                input.accept = '.xlsx, .xls';
-                                input.onchange = (e) => {
-                                  const file = e.target.files[0];
-                                  if (file) {
-                                    const formData = new FormData();
-                                    formData.append('file', file);
-                                       
-                                    axios.post('/api/v1/import-data', formData, {
-                                      headers: {
-                                        'Content-Type': 'multipart/form-data'
-                                      }
-                                    })
-                                    .then(response => {
-                                      if (response.data.code === 200) {
-                                        message.success(t('dataManagement.successAdd'));
-                                        // 刷新表格列表
-                                        fetchTables();
-                                      } else {
-                                        message.error(response.data.message);
-                                      }
-                                    })
-                                    .catch(error => {
-                                      console.error('Import error:', error);
-                                      message.error(t('dataManagement.importFailed'));
-                                    });
-                                  }
-                                };
-                                input.click();
-                              }
-                            },
-                            {
-                              key: 'm6-3',
-                              label: '数据库备份',
-                              onClick: () => {
-                                setMobileMenuVisible(false);
-                                navigate('/database-backup')
-                              }
-                            }
-                          ];
-                        }
-                        return [];
-                      })(),
-                      {
-                        key: 'm6-3',
-                        icon: <BugOutlined />,
-                        label: (
-                          <span
-                            style={{ cursor: 'pointer' }}
-                            onClick={showBugModal}
-                            onContextMenu={(e) => {
-                              e.preventDefault();
-                              showBugList();
-                            }}
-                          >
-                            Bug反馈
-                          </span>
-                        )
-                      }
-                    ]
-                  }
-                ]} />
-              </Sider>
-            )}
-            
             <Content
               style={{
                 background: '#fff',
@@ -950,23 +847,6 @@ const MainLayout = ({ isLoggedIn, setIsLoggedIn, t, lang, changeLang }) => {
               </Routes>
             </Content>
           </Layout>
-          {/* 点击遮罩层关闭侧边栏 */}
-          {mobileMenuVisible && (
-            <div
-              style={{
-                position: 'fixed',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                zIndex: 1000,
-                pointerEvents: 'auto',
-                animation: 'antFadeIn 0.3s ease-out'
-              }}
-              onClick={() => setMobileMenuVisible(false)}
-            />
-          )}
         </Layout>
 
         {/* Bug反馈模态框 */}

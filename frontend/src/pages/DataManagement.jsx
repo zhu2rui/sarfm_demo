@@ -1,6 +1,6 @@
-﻿import React, { useState, useEffect, useContext } from 'react'
+import React, { useState, useEffect, useContext } from 'react'
 import { Card, Button, Modal, Form, Input, message, Popconfirm, Space, InputNumber, Alert, Select, Dropdown, Menu, Checkbox, Tag } from 'antd'
-import { PlusOutlined, EditOutlined, DeleteOutlined, AppstoreOutlined, SearchOutlined, CopyOutlined, EnvironmentOutlined } from '@ant-design/icons'
+import { PlusOutlined, EditOutlined, DeleteOutlined, AppstoreOutlined, SearchOutlined, CopyOutlined, EnvironmentOutlined, ReloadOutlined } from '@ant-design/icons'
 import { useNavigate, useLocation } from 'react-router-dom'
 import axios from 'axios'
 import { TableContext } from '../App'
@@ -15,6 +15,7 @@ const DataManagement = () => {
   const location = useLocation();
   const setSelectedTableId = tableContext?.setSelectedTableId || (() => {});
   const fetchTables = tableContext?.fetchTables || (() => {});
+  const tableRefreshKey = tableContext?.tableRefreshKey || 0;
   const [selectedTable, setSelectedTable] = useState(null)
   const [dataList, setDataList] = useState([])
   const [loading, setLoading] = useState(false)
@@ -219,6 +220,26 @@ const DataManagement = () => {
       setPageSize(10)
     }
   }, [selectedTableId, tables])
+
+  // 挂载时及切换表格时，主动拉取最新表结构以保证数据一致
+  useEffect(() => {
+    if (fetchTables) {
+      fetchTables()
+    }
+  }, [selectedTableId])
+
+  // 响应侧边栏点击与全局刷新信号（即使选择同一表格也强制重新拉取）
+  useEffect(() => {
+    if (tableRefreshKey > 0) {
+      if (selectedTableId && tables.length > 0) {
+        const t = tables.find(item => item.id === selectedTableId)
+        if (t) {
+          setSelectedTable({ ...t })
+        }
+      }
+      refreshDataAfterMutation()
+    }
+  }, [tableRefreshKey])
 
   useEffect(() => {
     if (!selectedTable) return
@@ -431,8 +452,17 @@ const DataManagement = () => {
             const parsedPreferences = JSON.parse(savedPreferences)
             console.log('Loaded saved preferences:', parsedPreferences)
             
+            // 过滤：只保留当前表格中真实存在的列配置，排除已删除或重命名的旧列
+            const validColumnNames = new Set(Array.isArray(selectedTable.columns) ? selectedTable.columns.map(c => c.column_name) : [])
+            const validPreferences = {}
+            Object.keys(parsedPreferences).forEach(key => {
+              if (key === 'created_at' || key === 'action' || validColumnNames.has(key)) {
+                validPreferences[key] = parsedPreferences[key]
+              }
+            })
+
             // 合并保存的偏好和默认值，确保所有必要的列都有定义
-            finalVisibleColumns = { ...defaultVisibleColumns, ...parsedPreferences }
+            finalVisibleColumns = { ...defaultVisibleColumns, ...validPreferences }
           } catch (error) {
             console.error('解析列偏好失败:', error)
           }
@@ -1291,9 +1321,9 @@ const DataManagement = () => {
     const actionColumn = {
       title: '操作',
       key: 'action',
-      width: isMobile ? 125 : 170, // 精确调整宽度，正好适配两个按钮和间距
+      width: isMobile ? 180 : 190, // 充足宽度容纳三个操作按钮
       align: 'center', // 居中对齐
-      fixed: 'right', // 固定在右侧，提升用户体验
+      fixed: isMobile ? false : 'right', // 桌面端固定在右侧，移动端允许自然水平滚动避免遮挡内容
       render: (text, record) => (
         <Space 
           size={isMobile ? 'small' : 'middle'} 
@@ -2053,34 +2083,59 @@ const DataManagement = () => {
         }
       }}
     >
-      <div style={{ 
-        marginBottom: isMobile ? 12 : 20, 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center',
-        flexWrap: 'wrap',
-        gap: 12,
-        padding: isMobile ? '0 4px' : '0'
+      {/* 现代化响应式工具栏 */}
+      <div style={{
+        marginBottom: isMobile ? 12 : 16,
+        display: 'flex',
+        flexDirection: isMobile ? 'column' : 'row',
+        justifyContent: 'space-between',
+        alignItems: isMobile ? 'stretch' : 'center',
+        gap: isMobile ? 10 : 16,
+        padding: isMobile ? '0 2px' : '0'
       }}>
-        <div>
-          {selectedTable && (
-            <span style={{ 
-              fontSize: 15, 
-              fontWeight: 600, 
-              color: '#333',
-              marginRight: 16
-            }}>
-              当前表格: {selectedTable.table_name}
-            </span>
+        {/* 左侧：当前表格信息与标签 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          {selectedTable ? (
+            <>
+              <Tag color="geekblue" style={{ fontSize: 13, padding: '3px 10px', borderRadius: 4, margin: 0, fontWeight: 600 }}>
+                {selectedTable.table_name}
+              </Tag>
+              <Button
+                type="text"
+                size="small"
+                icon={<ReloadOutlined />}
+                title="刷新表格结构与数据"
+                loading={loading}
+                onClick={async () => {
+                  if (fetchTables) await fetchTables();
+                  await refreshDataAfterMutation();
+                  message.success('已刷新表格数据与结构');
+                }}
+                style={{ color: '#1890ff', padding: '0 4px', height: 24 }}
+              />
+              <span style={{ fontSize: 12, color: '#8c8c8c' }}>
+                共 {displayTotal} 条数据
+              </span>
+            </>
+          ) : (
+            <span style={{ fontSize: 14, color: '#999' }}>未选择表格</span>
           )}
         </div>
-        <Space size={isMobile ? "small" : "middle"} wrap style={{ width: '100%', justifyContent: isMobile ? 'center' : 'flex-end' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+
+        {/* 右侧：每页选择与添加数据按钮 */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: isMobile ? 'space-between' : 'flex-end',
+          gap: 12
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ color: '#666', fontSize: 12 }}>每页</span>
             <Select
               value={pageSize}
               onChange={setCurrentPageSize}
-              style={{ width: 96 }}
+              size={isMobile ? 'small' : 'middle'}
+              style={{ width: isMobile ? 75 : 85 }}
               options={[
                 { value: 10, label: '10' },
                 { value: 20, label: '20' },
@@ -2090,44 +2145,43 @@ const DataManagement = () => {
               ]}
             />
           </div>
+
           {(userRole === 'admin' || userRole === 'leader' || userRole === 'member') && (
             <Button 
               type="primary" 
               icon={<PlusOutlined />}
               onClick={() => showModal()}
               disabled={!selectedTable}
+              size={isMobile ? 'middle' : 'middle'}
               style={{
                 borderRadius: 6,
                 fontWeight: 500,
                 transition: 'all 0.3s ease',
-                padding: isMobile ? '4px 12px' : '8px 16px',
-                fontSize: isMobile ? '12px' : '14px'
+                flex: isMobile ? 1 : 'none',
+                maxWidth: isMobile ? 160 : 'none'
               }}
-              onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-1px)'}
-              onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
             >
-              {isMobile ? '添加' : '添加数据'}
+              添加数据
             </Button>
           )}
-        </Space>
+        </div>
       </div>
       
+      {/* 搜索栏 */}
       {selectedTable && (
         <div style={{ 
-          marginBottom: isMobile ? 12 : 20, 
+          marginBottom: isMobile ? 12 : 16, 
           display: 'flex', 
-          justifyContent: 'space-between', 
           alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: 12,
-          padding: isMobile ? '0 4px' : '0'
+          gap: 8,
+          flexWrap: 'wrap'
         }}>
-          {/* 搜索组件 */}
           <div style={{ 
             display: 'flex', 
             gap: 8,
-            width: '100%',
-            maxWidth: 600
+            flex: 1,
+            minWidth: isMobile ? '100%' : 320,
+            maxWidth: isMobile ? '100%' : 600
           }}>
             <Input
               placeholder="输入搜索关键词或正则表达式"
@@ -2136,30 +2190,22 @@ const DataManagement = () => {
               onPressEnter={handleSearch}
               allowClear={true}
               onClear={handleClearSearch}
-              style={{ 
-                borderRadius: 6,
-                flex: 1
-              }}
+              size={isMobile ? 'middle' : 'middle'}
+              style={{ borderRadius: 6, flex: 1 }}
             />
             <Button
               type="primary"
               icon={<SearchOutlined />}
               onClick={handleSearch}
               loading={loading}
-              style={{ 
-                borderRadius: 6,
-                whiteSpace: 'nowrap'
-              }}
+              style={{ borderRadius: 6, whiteSpace: 'nowrap' }}
             >
               搜索
             </Button>
             {getCurrentSearchState().isSearching && (
               <Button
                 onClick={handleClearSearch}
-                style={{ 
-                  borderRadius: 6,
-                  whiteSpace: 'nowrap'
-                }}
+                style={{ borderRadius: 6, whiteSpace: 'nowrap' }}
               >
                 清除
               </Button>
@@ -2169,11 +2215,12 @@ const DataManagement = () => {
           {/* 搜索结果统计 */}
           {getCurrentSearchState().isSearching && (
             <div style={{ 
-              fontSize: 14, 
+              fontSize: 13, 
               color: '#666',
-              fontWeight: 500
+              fontWeight: 500,
+              padding: '2px 0'
             }}>
-              共找到 <span style={{ color: '#1890ff', fontWeight: 600 }}>{getCurrentSearchState().searchCount}</span> 条匹配记录
+              找到 <span style={{ color: '#1890ff', fontWeight: 600 }}>{getCurrentSearchState().searchCount}</span> 条匹配
             </div>
           )}
         </div>

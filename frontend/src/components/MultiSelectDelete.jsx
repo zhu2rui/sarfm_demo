@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef, useContext } from 'react'
+import React, { useState, useEffect, useRef, useContext } from 'react'
 import { Table, Checkbox, Button, message, Modal, Space, Tag, Spin, Dropdown, Menu, Input, Select } from 'antd'
 import { DeleteOutlined, LoadingOutlined, LinkOutlined, EditOutlined, SearchOutlined, CopyOutlined } from '@ant-design/icons'
 import axios from 'axios'
@@ -97,14 +97,16 @@ const MultiSelectDelete = ({
       if (tables.length === 0) {
         const response = await axios.get('/api/v1/tables')
         if (response.data.code === 200) {
-          setTablesList(response.data.data)
+          const rawData = response.data.data
+          const items = Array.isArray(rawData) ? rawData : (rawData?.items || [])
+          setTablesList(items)
         } else {
           message.error(response.data.message)
           setTablesList([])
         }
       } else {
-        // 浣跨敤涓婁笅鏂囦腑鐨勮〃鏍兼暟鎹?
-        setTablesList(tables)
+        const items = Array.isArray(tables) ? tables : (tables?.items || [])
+        setTablesList(items)
       }
     } catch (error) {
       console.error('鑾峰彇琛ㄦ牸鍒楄〃澶辫触:', error)

@@ -13,6 +13,7 @@ from jwt import decode as jwt_decode
 from functools import wraps
 import json
 import codecs
+import re
 
 # 获取应用程序根目录（兼容PyInstaller打包）
 def get_app_root():
@@ -35,11 +36,24 @@ app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'your-secret-key')
 
 # 配置数据库
 import os
+from sqlalchemy.engine import Engine
+from sqlalchemy import event
+
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(get_app_root(), 'instance', 'inventory.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'connect_args': {'timeout': 30}
+}
 
 # 初始化数据库实例
 db = SQLAlchemy(app)
+
+# 启用SQLite外键级联检查
+@event.listens_for(Engine, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
 
 # 创建instance目录（如果不存在）
 os.makedirs(os.path.join(app.root_path, 'instance'), exist_ok=True)
@@ -80,6 +94,10 @@ def serve_static(path):
     import mimetypes
     import os
     
+    # 防止SPA通配路由吞掉不存在的API请求
+    if path.startswith('api/') or path == 'api':
+        return jsonify({'code': 404, 'message': 'API endpoint not found', 'data': None}), 404
+
     # 检查文件是否存在
     file_path = os.path.join(app.config['FRONTEND_DIST'], path)
     if os.path.exists(file_path) and os.path.isfile(file_path):
@@ -194,11 +212,16 @@ def token_required(f):
     def decorated(*args, **kwargs):
         token = None
         # 从请求头获取token
-        if 'Authorization' in request.headers:
-            token = request.headers['Authorization'].split(' ')[1]  # 格式: Bearer <token>
+        auth_header = request.headers.get('Authorization', '').strip()
+        if auth_header:
+            parts = auth_header.split()
+            if len(parts) == 2 and parts[0].lower() == 'bearer':
+                token = parts[1]
+            elif len(parts) == 1:
+                token = parts[0]
         
         if not token:
-            return jsonify({'code': 401, 'message': 'Token is missing!', 'data': None}), 401
+            return jsonify({'code': 401, 'message': 'Token is missing or invalid format!', 'data': None}), 401
         
         try:
             # 解码token
@@ -265,7 +288,7 @@ def login():
     password = data.get('password')
     remember = data.get('remember', False)
     
-    logger.info(f'登录请求: 用户名={username}, 密码={password}, remember={remember}')
+    logger.info(f'登录请求: 用户名={username}, remember={remember}')
     
     if not username:
         logger.info(f'登录失败: 用户名不能为空')
@@ -286,23 +309,12 @@ def login():
         is_empty_password = check_password_hash(user.password, '')
     except Exception:
         is_empty_password = (user.password == '')
-    logger.info(f'用户 {username} 的密码哈希: {user.password}')
-    logger.info(f'密码为空? {password == ""}, 是否是初始密码? {is_empty_password}')
 
     # 测试密码是否匹配（兼容scrypt等可能抛出异常的hash格式）
     try:
         password_matches = check_password_hash(user.password, password)
     except Exception:
         password_matches = False
-    logger.info(f'密码匹配? {password_matches}')
-
-    # 测试一些常用密码
-    try:
-        for pwd in ['admin123', 'leader123', 'member123', '123456']:
-            if check_password_hash(user.password, pwd):
-                logger.info(f'常用密码 {pwd} 匹配!')
-    except Exception:
-        pass
 
     # 检查是否使用默认密码登录（兼容scrypt等可能抛出异常的hash格式）
     try:
@@ -436,7 +448,7 @@ def reset_password():
         new_password = data.get('new_password')
         confirm_password = data.get('confirm_password')
         
-        logger.info(f'请求参数: username={username}, new_password={new_password}, confirm_password={confirm_password}')
+        logger.info(f'请求参数: username={username}')
         
         # 验证请求参数
         if not username:
@@ -451,7 +463,7 @@ def reset_password():
         
         # 验证两次密码输入一致
         if new_password != confirm_password:
-            logger.warning(f'用户 {username} 两次密码输入不一致: {new_password} != {confirm_password}')
+            logger.warning(f'用户 {username} 两次密码输入不一致')
             return jsonify({'code': 400, 'message': '两次密码输入不一致', 'data': None}), 400
         
         logger.info('密码强度验证通过')
@@ -462,6 +474,11 @@ def reset_password():
         if not user:
             logger.warning(f'用户 {username} 不存在')
             return jsonify({'code': 404, 'message': '用户不存在', 'data': None}), 404
+        
+        # 安全加固：仅允许首次登录用户通过此接口重置密码，防止任意越权改密
+        if not user.first_login:
+            logger.warning(f'用户 {username} 非首次登录状态，拒绝无凭证重置密码')
+            return jsonify({'code': 403, 'message': '非首次登录用户不能通过此接口重置密码，请登录后在个人中心修改', 'data': None}), 403
         
         logger.info(f'找到用户: id={user.id}, username={user.username}, first_login={user.first_login}, role={user.role}')
         
@@ -781,29 +798,45 @@ def update_table_structure(current_user, table_id):
         
         table.columns = json.dumps(columns)
         
-        # 获取该表格所有数据，用于处理自增列
-        inventory_data_list = InventoryData.query.filter_by(table_id=table_id).all()
+        # 获取该表格所有数据，按ID升序排序，用于处理自增列补全
+        inventory_data_list = InventoryData.query.filter_by(table_id=table_id).order_by(InventoryData.id.asc()).all()
         
-        # 处理自增列的自增序列
+        # 处理自增列的自增序列和历史数据自动补全
+        active_auto_cols = []
         for column in columns:
             if column.get('autoIncrement'):
                 column_name = column['column_name']
-                prefix = column.get('prefix', '')
+                prefix = column.get('prefix') or ''
+                active_auto_cols.append(column_name)
                 
-                # 查找现有数据中该列的最大值
+                # 查找现有数据中已有的最大序号，并收集未编号记录
                 max_value = 0
-                import re
-                pattern = re.compile(f'^{re.escape(prefix)}(\d+)$')
+                unassigned_records = []
                 
                 for inventory_data in inventory_data_list:
-                    data_json = json.loads(inventory_data.data)
-                    if column_name in data_json:
-                        value = data_json[column_name]
-                        match = pattern.match(value)
+                    data_json = json.loads(inventory_data.data) if isinstance(inventory_data.data, str) else (inventory_data.data or {})
+                    val = data_json.get(column_name)
+                    if val is None or str(val).strip() == '':
+                        unassigned_records.append((inventory_data, data_json))
+                    else:
+                        match = re.match(r'^(.*?)(\d+)$', str(val).strip())
                         if match:
-                            numeric_part = int(match.group(1))
+                            numeric_part = int(match.group(2))
                             if numeric_part > max_value:
                                 max_value = numeric_part
+                            # 迁移/统一数据前缀为新前缀，保留原有编号数字
+                            new_val = f"{prefix}{numeric_part}"
+                            if str(val).strip() != new_val:
+                                data_json[column_name] = new_val
+                                inventory_data.data = json.dumps(data_json, ensure_ascii=False)
+                                db.session.add(inventory_data)
+                
+                # 为历史未编号的数据按顺序补齐自增编号
+                for inventory_data, data_json in unassigned_records:
+                    max_value += 1
+                    data_json[column_name] = f"{prefix}{max_value}"
+                    inventory_data.data = json.dumps(data_json, ensure_ascii=False)
+                    db.session.add(inventory_data)
                 
                 # 获取或创建自增序列
                 sequence = AutoIncrementSequence.query.filter_by(
@@ -812,7 +845,6 @@ def update_table_structure(current_user, table_id):
                 ).first()
                 
                 if not sequence:
-                    # 创建新的自增序列
                     sequence = AutoIncrementSequence(
                         table_id=table_id,
                         column_name=column_name,
@@ -820,8 +852,43 @@ def update_table_structure(current_user, table_id):
                     )
                     db.session.add(sequence)
                 else:
-                    # 更新现有序列的当前值
                     sequence.current_value = max_value
+        
+        # 清理不再启用的自增序列
+        if active_auto_cols:
+            AutoIncrementSequence.query.filter(
+                AutoIncrementSequence.table_id == table_id,
+                AutoIncrementSequence.column_name.notin_(active_auto_cols)
+            ).delete(synchronize_session=False)
+        else:
+            AutoIncrementSequence.query.filter_by(table_id=table_id).delete(synchronize_session=False)
+
+        # 同步更新关联该表格的所有 CryoCell 缓存
+        linked_cells = CryoCell.query.filter_by(linked_table_id=table_id).all()
+        if linked_cells:
+            inv_ids = {c.linked_data_id for c in linked_cells if c.linked_data_id}
+            inv_map = {d.id: d for d in InventoryData.query.filter(InventoryData.id.in_(inv_ids)).all()} if inv_ids else {}
+            for c in linked_cells:
+                inv = inv_map.get(c.linked_data_id)
+                if inv:
+                    inv_dict = json.loads(inv.data) if isinstance(inv.data, str) else (inv.data or {})
+                    disp_dict = {}
+                    for k, v in inv_dict.items():
+                        if isinstance(v, dict) and v.get('_storage'):
+                            disp_dict[k] = v.get('_text', '')
+                        elif isinstance(v, dict) and v.get('_text'):
+                            disp_dict[k] = v.get('_text', '')
+                        else:
+                            disp_dict[k] = v
+                    c_data = json.loads(c.data) if c.data else {}
+                    c_data['_linked'] = True
+                    c_data['_table_id'] = table.id
+                    c_data['_data_id'] = inv.id
+                    c_data['_table_name'] = table.table_name
+                    c_data['_table_columns'] = columns
+                    c_data['_row_data'] = disp_dict
+                    c.data = json.dumps(c_data, ensure_ascii=False)
+                    db.session.add(c)
     
     try:
         db.session.commit()
@@ -852,9 +919,13 @@ def check_auto_increment(current_user, table_id):
     if not table:
         return jsonify({'code': 404, 'message': '表格结构不存在', 'data': None}), 404
     
-    data = request.get_json()
+    data = request.get_json() or {}
     column_name = data.get('column_name')
-    prefix = data.get('prefix', '')
+    prefix = data.get('prefix')
+    if prefix is None:
+        prefix = ''
+    else:
+        prefix = str(prefix)
     
     if not column_name:
         return jsonify({'code': 400, 'message': '列名不能为空', 'data': None}), 400
@@ -862,63 +933,98 @@ def check_auto_increment(current_user, table_id):
     # 获取该表格所有数据
     inventory_data_list = InventoryData.query.filter_by(table_id=table_id).all()
     
-    # 用于验证的数据列表
-    column_values = []
-    numeric_values = []
-    existing_prefixes = set()
-    
-    # 正则表达式：前缀+数字组合
-    import re
-    pattern = re.compile(f'^(.+?)(\d+)$')
-    
-    # 如果没有输入前缀，先检测现有数据的前缀
-    detected_prefix = prefix
-    if not prefix and inventory_data_list:
-        # 先从第一条数据中提取前缀
-        first_data = inventory_data_list[0]
-        data_json = json.loads(first_data.data)
-        if column_name in data_json:
-            value = data_json[column_name]
-            match = pattern.match(value)
-            if match:
-                detected_prefix = match.group(1)
+    # 分离已编号数据与未编号记录
+    assigned_values = []
+    unassigned_count = 0
     
     for inventory_data in inventory_data_list:
-        data_json = json.loads(inventory_data.data)
-        if column_name in data_json:
-            value = data_json[column_name]
-            column_values.append(value)
-            
-            # 验证格式：前缀+数字组合
-            match = pattern.match(value)
-            if not match:
-                return jsonify({'code': 400, 'message': f'列 {column_name} 中存在不符合格式的数据: {value}。数据必须符合 [前缀字符串][数字] 格式。', 'data': None}), 400
-            
-            # 提取前缀和数字部分
-            actual_prefix = match.group(1)
-            numeric_part = match.group(2)
-            
-            existing_prefixes.add(actual_prefix)
-            
-            # 验证前缀是否与检测到的前缀匹配
-            if actual_prefix != detected_prefix:
-                return jsonify({'code': 400, 'message': f'列 {column_name} 中数据的前缀与预期前缀不匹配。现有数据的前缀为: {actual_prefix}，预期前缀为: {detected_prefix}。', 'data': None}), 400
-            
-            numeric_values.append(int(numeric_part))
+        data_json = json.loads(inventory_data.data) if isinstance(inventory_data.data, str) else (inventory_data.data or {})
+        val = data_json.get(column_name)
+        if val is None or str(val).strip() == '':
+            unassigned_count += 1
+        else:
+            assigned_values.append(str(val).strip())
     
-    # 验证唯一性
-    if len(column_values) != len(set(column_values)):
-        return jsonify({'code': 400, 'message': f'列 {column_name} 中存在重复数据。请重新整理数据，确保所有数据唯一。', 'data': None}), 400
+    # 如果没有已填写的编号数据，直接通过
+    if not assigned_values:
+        return jsonify({
+            'code': 200,
+            'message': '数据符合要求',
+            'data': {
+                'max_value': 0,
+                'prefix': prefix,
+                'old_prefix': prefix,
+                'is_prefix_changed': False,
+                'sample_old': '',
+                'sample_new': '',
+                'unassigned_count': unassigned_count,
+                'total_count': len(inventory_data_list),
+                'assigned_count': 0
+            }
+        }), 200
     
-    # 计算最大数字值
-    max_value = max(numeric_values) if numeric_values else 0
+    # 1. 逐条解析所有已编号数据，校验是否符合 [前缀][数字] 结构
+    parsed_items = []
+    for val in assigned_values:
+        m = re.match(r'^(.*?)(\d+)$', val)
+        if not m:
+            return jsonify({
+                'code': 400,
+                'message': f'列「{column_name}」中存在不符合编号格式的数据: "{val}"（必须符合 [前缀][数字] 格式）。存在不规则数据，不予改变前缀。',
+                'data': None
+            }), 400
+        parsed_items.append((m.group(1), m.group(2), int(m.group(2))))
     
-    # 如果数据量大于0，检查现有数据的前缀是否一致
-    if len(existing_prefixes) > 1:
-        return jsonify({'code': 400, 'message': f'列 {column_name} 中数据的前缀不一致。现有数据包含多种前缀: {list(existing_prefixes)}。请重新整理数据，确保所有数据使用统一的前缀。', 'data': None}), 400
+    # 2. 检查现有前缀是否统一 (统一性检查)
+    prefixes_found = list({item[0] for item in parsed_items})
+    if len(prefixes_found) > 1:
+        prefixes_display = ', '.join([f'「{p}」' if p else '「(无前缀)」' for p in sorted(prefixes_found)])
+        return jsonify({
+            'code': 400,
+            'message': f'列「{column_name}」中存在多种编号形式（检测到多种前缀: {prefixes_display}），数据不统一，不予改变前缀。请先规范整理该列数据。',
+            'data': {
+                'multiple_prefixes': prefixes_found
+            }
+        }), 400
     
-    # 返回检测到的前缀和最大数字值
-    return jsonify({'code': 200, 'message': '数据符合要求', 'data': {'max_value': max_value, 'prefix': detected_prefix}}), 200
+    # 3. 验证数字部分的唯一性
+    numeric_list = [item[2] for item in parsed_items]
+    if len(numeric_list) != len(set(numeric_list)):
+        seen = set()
+        dups = set()
+        for n in numeric_list:
+            if n in seen:
+                dups.add(n)
+            seen.add(n)
+        return jsonify({
+            'code': 400,
+            'message': f'列「{column_name}」中存在重复编号: {sorted(list(dups))}。请重新整理数据，确保编号唯一。',
+            'data': None
+        }), 400
+    
+    # 4. 前缀统一，判断是否发生前缀变更
+    existing_prefix = prefixes_found[0]
+    is_prefix_changed = (existing_prefix != prefix)
+    min_num = min(numeric_list)
+    max_num = max(numeric_list)
+    sample_old = f"{existing_prefix}{min_num}"
+    sample_new = f"{prefix}{min_num}"
+    
+    return jsonify({
+        'code': 200,
+        'message': '数据符合要求',
+        'data': {
+            'max_value': max_num,
+            'prefix': prefix,
+            'old_prefix': existing_prefix,
+            'is_prefix_changed': is_prefix_changed,
+            'sample_old': sample_old,
+            'sample_new': sample_new,
+            'unassigned_count': unassigned_count,
+            'total_count': len(inventory_data_list),
+            'assigned_count': len(assigned_values)
+        }
+    }), 200
 
 # 删除表格结构
 @app.route('/api/v1/tables/<int:table_id>', methods=['DELETE'])
@@ -933,6 +1039,10 @@ def delete_table_structure(current_user, table_id):
         return jsonify({'code': 404, 'message': '表格结构不存在', 'data': None}), 404
     
     try:
+        # 删除关联的自增序列
+        AutoIncrementSequence.query.filter_by(table_id=table_id).delete()
+        # 解绑冻存格中引用的本表格
+        CryoCell.query.filter_by(linked_table_id=table_id).update({'linked_table_id': None, 'linked_data_id': None})
         # 删除关联的库存数据
         InventoryData.query.filter_by(table_id=table_id).delete()
         # 删除表格结构
@@ -1125,65 +1235,17 @@ def get_inventory_data_list(current_user, table_id):
     # 构建查询
     query = InventoryData.query.filter_by(table_id=table_id)
     
-    # 如果有搜索关键词，则进行搜索（在Python层面过滤）
+    # 如果有搜索关键词，在SQL层使用LIKE模糊匹配，避免把全表读入内存导致OOM
     if search:
-        try:
-            # 先获取所有数据，然后在Python中过滤
-            all_data = query.all()
-            
-            # 在Python中进行搜索过滤
-            filtered_data = []
-            search_lower = search.lower()
-            
-            for item in all_data:
-                try:
-                    data_dict = json.loads(item.data) if isinstance(item.data, str) else item.data
-                    
-                    # 搜索所有数据字段的值
-                    for key, value in data_dict.items():
-                        if value and search_lower in str(value).lower():
-                            filtered_data.append(item)
-                            break
-                    
-                    # 也搜索created_at字段
-                    if item.created_at and search_lower in item.created_at.strftime('%Y-%m-%d %H:%M:%S').lower():
-                        if item not in filtered_data:
-                            filtered_data.append(item)
-                except:
-                    pass
-            
-            # 手动实现分页
-            total = len(filtered_data)
-            start = (page - 1) * per_page
-            end = start + per_page
-            paginated_items = filtered_data[start:end]
-            
-            # 转换数据格式
-            items = []
-            for item in paginated_items:
-                items.append({
-                    'id': item.id,
-                    'table_id': item.table_id,
-                    'data': json.loads(item.data) if isinstance(item.data, str) else item.data,
-                    'created_by': item.created_by,
-                    'created_at': item.created_at.strftime('%Y-%m-%d %H:%M:%S'),
-                    'updated_at': item.updated_at.strftime('%Y-%m-%d %H:%M:%S')
-                })
-            
-            return jsonify({
-                'code': 200,
-                'message': 'success',
-                'data': {
-                    'items': items,
-                    'total': total,
-                    'page': page,
-                    'per_page': per_page
-                }
-            }), 200
-        except Exception as e:
-            print(f"Search error: {e}")
+        search_pattern = f"%{search}%"
+        query = query.filter(
+            or_(
+                InventoryData.data.like(search_pattern),
+                InventoryData.created_at.like(search_pattern)
+            )
+        )
     
-    # 执行查询并使用默认排序
+    # 执行查询并使用默认排序与统一的分页逻辑
     paginated_data = query.order_by(
         InventoryData.created_at.desc()
     ).paginate(page=page, per_page=per_page, error_out=False)
@@ -1194,10 +1256,10 @@ def get_inventory_data_list(current_user, table_id):
         items.append({
             'id': item.id,
             'table_id': item.table_id,
-            'data': json.loads(item.data),
+            'data': json.loads(item.data) if isinstance(item.data, str) else item.data,
             'created_by': item.created_by,
-            'created_at': item.created_at.strftime('%Y-%m-%d %H:%M:%S'),
-            'updated_at': item.updated_at.strftime('%Y-%m-%d %H:%M:%S')
+            'created_at': item.created_at.strftime('%Y-%m-%d %H:%M:%S') if item.created_at else '',
+            'updated_at': item.updated_at.strftime('%Y-%m-%d %H:%M:%S') if item.updated_at else ''
         })
     
     return jsonify({
@@ -1472,6 +1534,19 @@ def batch_add_inventory_data(current_user, table_id):
     error_messages = []
     
     try:
+        # 获取表格列配置并初始化自增列序列映射
+        columns = json.loads(table.columns)
+        auto_cols = [c for c in columns if c.get('autoIncrement')]
+        auto_seq_map = {}
+        for c in auto_cols:
+            c_name = c['column_name']
+            prefix = c.get('prefix') or ''
+            seq = AutoIncrementSequence.query.filter_by(table_id=table_id, column_name=c_name).first()
+            if not seq:
+                seq = AutoIncrementSequence(table_id=table_id, column_name=c_name, current_value=0)
+                db.session.add(seq)
+            auto_seq_map[c_name] = (prefix, seq)
+
         for item in items:
             if not item.get('data') or not isinstance(item.get('data'), dict):
                 error_count += 1
@@ -1479,8 +1554,16 @@ def batch_add_inventory_data(current_user, table_id):
                 continue
             
             try:
+                item_data = dict(item['data'])
+                # 为未提供自增值的自增列自动分配递增编号
+                for c_name, (prefix, seq) in auto_seq_map.items():
+                    val = item_data.get(c_name)
+                    if val is None or str(val).strip() == '':
+                        seq.current_value += 1
+                        item_data[c_name] = f"{prefix}{seq.current_value}"
+                
                 # 将库存数据转换为JSON字符串
-                data_json = json.dumps(item['data'])
+                data_json = json.dumps(item_data, ensure_ascii=False)
                 
                 new_data = InventoryData(
                     table_id=table_id,
@@ -1644,8 +1727,8 @@ def export_table_data(current_user, table_id):
         
         # 使用Windows风格的换行符\r\n，确保跨平台兼容性
         csv_content_str = '\r\n'.join(csv_lines)
-        # 转换为字节流
-        csv_content = csv_content_str.encode('utf-8')
+        # 转换为字节流并添加UTF-8 BOM，确保Windows Excel打开中文不乱码
+        csv_content = codecs.BOM_UTF8 + csv_content_str.encode('utf-8')
         
         # 设置响应头
         from flask import Response
@@ -1677,7 +1760,7 @@ def import_table_data(current_user, table_id):
     # 检查表格是否存在
     table = TableStructure.query.get(table_id)
     if not table:
-        return jsonify({'code': 404, 'message': '����ṹ������', 'data': None}), 404
+        return jsonify({'code': 404, 'message': '表格结构不存在', 'data': None}), 404
     
     # 检查用户权限
     if current_user.role not in ['admin', 'leader']:
@@ -2495,7 +2578,7 @@ def import_data(current_user):
                         
                         if all_data:
                             import re
-                            pattern = re.compile(f'^{re.escape(prefix)}(\d+)$')
+                            pattern = re.compile(rf'^{re.escape(prefix)}(\d+)$')
                             
                             for item in all_data:
                                 item_data = json.loads(item.data)
@@ -2797,7 +2880,13 @@ def create_db_backup():
         backup_filename = f'inventory_backup_{timestamp}.db'
         backup_path = os.path.join(BACKUP_FOLDER, backup_filename)
         
-        shutil.copy2(db_path, backup_path)
+        # 使用SQLite官方Online Backup API，防止热备时数据损坏
+        import sqlite3
+        src_conn = sqlite3.connect(db_path)
+        dst_conn = sqlite3.connect(backup_path)
+        src_conn.backup(dst_conn)
+        dst_conn.close()
+        src_conn.close()
         
         config = get_backup_config()
         config['last_backup_time'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -2915,14 +3004,22 @@ def download_backup_api(current_user, filename):
     if current_user.role != 'admin':
         return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
     
-    backup_path = os.path.join(BACKUP_FOLDER, filename)
+    from werkzeug.utils import secure_filename
+    safe_filename = secure_filename(filename)
+    if not safe_filename or safe_filename != filename:
+        return jsonify({'code': 400, 'message': '非法文件名', 'data': None}), 400
+    
+    backup_path = os.path.abspath(os.path.join(BACKUP_FOLDER, safe_filename))
+    if not backup_path.startswith(os.path.abspath(BACKUP_FOLDER)):
+        return jsonify({'code': 403, 'message': '禁止路径遍历', 'data': None}), 403
+    
     if not os.path.exists(backup_path):
         return jsonify({'code': 404, 'message': '备份文件不存在', 'data': None}), 404
     
     return Response(
         open(backup_path, 'rb'),
         mimetype='application/octet-stream',
-        headers={'Content-Disposition': f'attachment; filename={filename}'}
+        headers={'Content-Disposition': f'attachment; filename={safe_filename}'}
     )
 
 @app.route('/api/v1/backup/delete/<filename>', methods=['DELETE'])
@@ -2931,7 +3028,15 @@ def delete_backup_api(current_user, filename):
     if current_user.role != 'admin':
         return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
     
-    backup_path = os.path.join(BACKUP_FOLDER, filename)
+    from werkzeug.utils import secure_filename
+    safe_filename = secure_filename(filename)
+    if not safe_filename or safe_filename != filename:
+        return jsonify({'code': 400, 'message': '非法文件名', 'data': None}), 400
+    
+    backup_path = os.path.abspath(os.path.join(BACKUP_FOLDER, safe_filename))
+    if not backup_path.startswith(os.path.abspath(BACKUP_FOLDER)):
+        return jsonify({'code': 403, 'message': '禁止路径遍历', 'data': None}), 403
+    
     if not os.path.exists(backup_path):
         return jsonify({'code': 404, 'message': '备份文件不存在', 'data': None}), 404
     
@@ -3187,25 +3292,66 @@ def get_cryo_grid(current_user, box_id):
 
     # 获取所有已占用的格子
     cells = CryoCell.query.filter_by(box_id=box_id).all()
+    meaningful_cells = [c for c in cells if _is_meaningful_cryo_cell(c)]
+
+    # 批量预加载关联的表格定义和库存数据，保证返回实时最新的列与数据
+    linked_table_ids = {c.linked_table_id for c in meaningful_cells if c.linked_table_id}
+    linked_data_ids = {c.linked_data_id for c in meaningful_cells if c.linked_data_id}
+    tables_map = {t.id: t for t in TableStructure.query.filter(TableStructure.id.in_(linked_table_ids)).all()} if linked_table_ids else {}
+    inv_data_map = {d.id: d for d in InventoryData.query.filter(InventoryData.id.in_(linked_data_ids)).all()} if linked_data_ids else {}
+
     cell_map = {}
-    for cell in cells:
-        if not _is_meaningful_cryo_cell(cell):
-            continue
-        cell_info = {
-            'id': cell.id,
-            'row': cell.row,
-            'col': cell.col,
-            'data': json.loads(cell.data) if cell.data else {},
-            'linked_table_id': cell.linked_table_id,
-            'linked_data_id': cell.linked_data_id,
-            'created_at': cell.created_at.strftime('%Y-%m-%d %H:%M:%S') if cell.created_at else '',
-            'updated_at': cell.updated_at.strftime('%Y-%m-%d %H:%M:%S') if cell.updated_at else ''
-        }
-        # 如果有反向关联，附加表格名称
-        if cell.linked_table_id:
-            linked_table = TableStructure.query.get(cell.linked_table_id)
-            if linked_table:
+    for cell in meaningful_cells:
+        raw_cell_data = json.loads(cell.data) if cell.data else {}
+        linked_table = tables_map.get(cell.linked_table_id) if cell.linked_table_id else None
+        inv_data = inv_data_map.get(cell.linked_data_id) if cell.linked_data_id else None
+
+        if linked_table and inv_data:
+            current_table_columns = json.loads(linked_table.columns) if linked_table.columns else []
+            current_row_dict = json.loads(inv_data.data) if isinstance(inv_data.data, str) else (inv_data.data or {})
+
+            display_row_data = {}
+            for k, v in current_row_dict.items():
+                if isinstance(v, dict) and v.get('_storage'):
+                    display_row_data[k] = v.get('_text', '')
+                elif isinstance(v, dict) and v.get('_text'):
+                    display_row_data[k] = v.get('_text', '')
+                else:
+                    display_row_data[k] = v
+
+            cell_data = dict(raw_cell_data)
+            cell_data['_linked'] = True
+            cell_data['_table_id'] = linked_table.id
+            cell_data['_data_id'] = inv_data.id
+            cell_data['_table_name'] = linked_table.table_name
+            cell_data['_table_columns'] = current_table_columns
+            cell_data['_row_data'] = display_row_data
+
+            cell_info = {
+                'id': cell.id,
+                'row': cell.row,
+                'col': cell.col,
+                'data': cell_data,
+                'linked_table_id': cell.linked_table_id,
+                'linked_data_id': cell.linked_data_id,
+                'linked_table_name': linked_table.table_name,
+                'created_at': cell.created_at.strftime('%Y-%m-%d %H:%M:%S') if cell.created_at else '',
+                'updated_at': cell.updated_at.strftime('%Y-%m-%d %H:%M:%S') if cell.updated_at else ''
+            }
+        else:
+            cell_info = {
+                'id': cell.id,
+                'row': cell.row,
+                'col': cell.col,
+                'data': raw_cell_data,
+                'linked_table_id': cell.linked_table_id,
+                'linked_data_id': cell.linked_data_id,
+                'created_at': cell.created_at.strftime('%Y-%m-%d %H:%M:%S') if cell.created_at else '',
+                'updated_at': cell.updated_at.strftime('%Y-%m-%d %H:%M:%S') if cell.updated_at else ''
+            }
+            if cell.linked_table_id and linked_table:
                 cell_info['linked_table_name'] = linked_table.table_name
+
         cell_map[f"{cell.row},{cell.col}"] = cell_info
 
     # 构建完整的 9x9 网格 (row 1-9, col 1-9)
@@ -3290,6 +3436,33 @@ def get_cryo_cell(current_user, box_id, row, col):
     if not cell:
         return jsonify({'code': 200, 'message': '空格子', 'data': None}), 200
 
+    raw_cell_data = json.loads(cell.data) if cell.data else {}
+    linked_table_name = None
+
+    if cell.linked_table_id and cell.linked_data_id:
+        table = TableStructure.query.get(cell.linked_table_id)
+        inv = InventoryData.query.get(cell.linked_data_id)
+        if table and inv:
+            linked_table_name = table.table_name
+            current_table_columns = json.loads(table.columns) if table.columns else []
+            current_row_dict = json.loads(inv.data) if isinstance(inv.data, str) else (inv.data or {})
+
+            display_row_data = {}
+            for k, v in current_row_dict.items():
+                if isinstance(v, dict) and v.get('_storage'):
+                    display_row_data[k] = v.get('_text', '')
+                elif isinstance(v, dict) and v.get('_text'):
+                    display_row_data[k] = v.get('_text', '')
+                else:
+                    display_row_data[k] = v
+
+            raw_cell_data['_linked'] = True
+            raw_cell_data['_table_id'] = table.id
+            raw_cell_data['_data_id'] = inv.id
+            raw_cell_data['_table_name'] = table.table_name
+            raw_cell_data['_table_columns'] = current_table_columns
+            raw_cell_data['_row_data'] = display_row_data
+
     return jsonify({
         'code': 200,
         'message': 'success',
@@ -3297,7 +3470,10 @@ def get_cryo_cell(current_user, box_id, row, col):
             'id': cell.id,
             'row': cell.row,
             'col': cell.col,
-            'data': json.loads(cell.data) if cell.data else {},
+            'data': raw_cell_data,
+            'linked_table_id': cell.linked_table_id,
+            'linked_data_id': cell.linked_data_id,
+            'linked_table_name': linked_table_name,
             'created_at': cell.created_at.strftime('%Y-%m-%d %H:%M:%S') if cell.created_at else '',
             'updated_at': cell.updated_at.strftime('%Y-%m-%d %H:%M:%S') if cell.updated_at else ''
         }

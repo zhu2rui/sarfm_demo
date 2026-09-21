@@ -405,40 +405,157 @@ code, pre, .mono { font-family: var(--font-mono); }
 }
 
 /* ============================================================
+   HEADER & USER STATUS
+   ============================================================ */
+.app-header {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  background: var(--color-navy) !important;
+  padding: 0 16px !important;
+  height: 56px !important;
+  line-height: 56px !important;
+  box-shadow: 0 2px 8px rgba(0,0,0,.15);
+  position: sticky;
+  top: 0;
+  z-index: 999;
+}
+
+.brand-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: linear-gradient(135deg, var(--color-teal) 0%, var(--color-teal-light) 100%);
+  border-radius: var(--radius-sm);
+  color: #fff;
+  font-size: 15px;
+  margin-right: 10px;
+  box-shadow: 0 2px 6px rgba(13,148,136,.3);
+}
+
+.header-user-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  background: rgba(255,255,255,.08);
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all .2s;
+  color: #fff;
+  font-size: 13px;
+}
+.header-user-pill:hover {
+  background: rgba(255,255,255,.16);
+  border-color: rgba(255,255,255,.25);
+}
+
+/* Mobile Drawer Menu */
+.mobile-nav-drawer .ant-drawer-body {
+  padding: 0 !important;
+  background: var(--color-bg-sidebar) !important;
+  display: flex;
+  flex-direction: column;
+}
+.mobile-nav-drawer .ant-drawer-header {
+  background: var(--color-navy) !important;
+  border-bottom: 1px solid rgba(255,255,255,.08) !important;
+  padding: 14px 20px !important;
+}
+.mobile-nav-drawer .ant-drawer-title {
+  color: #fff !important;
+  font-size: 16px !important;
+  font-weight: 600;
+}
+.mobile-nav-drawer .ant-drawer-close {
+  color: rgba(255,255,255,.7) !important;
+}
+.mobile-nav-drawer .ant-menu {
+  background: transparent !important;
+  border-right: none !important;
+}
+.mobile-nav-drawer .ant-menu-item,
+.mobile-nav-drawer .ant-menu-submenu-title {
+  color: rgba(255,255,255,.85) !important;
+  font-size: 14px !important;
+  height: 44px !important;
+  line-height: 44px !important;
+  margin: 3px 8px !important;
+  border-radius: var(--radius-sm) !important;
+}
+.mobile-nav-drawer .ant-menu-item:hover,
+.mobile-nav-drawer .ant-menu-submenu-title:hover {
+  background: rgba(255,255,255,.08) !important;
+  color: #fff !important;
+}
+.mobile-nav-drawer .ant-menu-item-selected {
+  background: rgba(13,148,136,.25) !important;
+  color: var(--color-teal-light) !important;
+  font-weight: 600;
+}
+
+/* ============================================================
    RESPONSIVE: MOBILE (< 768px)
    ============================================================ */
 @media (max-width: 768px) {
   .desktop-sider { display: none !important; }
-  .mobile-sider {
-    position: fixed; z-index: 1000; top: 56px; left: 0;
-    height: calc(100vh - 56px); background: var(--color-bg-sidebar) !important;
-  }
-  .ant-layout-content { padding: 12px !important; }
-  .ant-card-body { padding: 12px !important; }
-  .ant-card-head { padding: 12px 14px !important; }
+  .ant-layout-content { padding: 10px 8px !important; }
+  .ant-card { margin-bottom: 12px !important; border-radius: var(--radius-sm) !important; }
+  .ant-card-body { padding: 14px 10px !important; }
+  .ant-card-head { padding: 10px 12px !important; min-height: 42px !important; }
   .ant-card-head-title { font-size: 14px !important; }
-  .ant-btn { height: 32px; padding: 0 12px; font-size: 12px; }
-  .ant-input, .ant-select-selector { height: 34px !important; font-size: 13px; }
-  .ant-table-thead > tr > th { padding: 8px 6px !important; font-size: 11px !important; }
-  .ant-table-tbody > tr > td { padding: 6px 6px !important; font-size: 12px; }
-  .ant-modal { top: 8px; max-width: 95vw !important; }
-  .ant-modal-body { padding: 14px !important; }
-  .login-card { width: 90% !important; margin: 12px; }
-  .login-card .ant-card-head { padding: 20px 20px 14px; }
-  .login-card .ant-card-body { padding: 20px; }
+  .ant-btn { height: 34px; padding: 0 12px; font-size: 13px; }
+  .ant-input, .ant-select-selector { height: 36px !important; font-size: 13px; }
+  .ant-modal {
+    width: calc(100vw - 16px) !important;
+    max-width: calc(100vw - 16px) !important;
+    top: 12px !important;
+    margin: 0 auto !important;
+    padding-bottom: 16px !important;
+  }
+  .ant-modal-content {
+    border-radius: var(--radius-md) !important;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+  }
+  .ant-modal-body {
+    padding: 16px 14px !important;
+    max-height: calc(85vh - 120px);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .ant-modal-footer {
+    padding: 10px 16px !important;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  .login-card { width: 92% !important; margin: 12px; }
+  
+  .ant-table-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .ant-table-thead > tr > th { padding: 8px 6px !important; font-size: 12px !important; white-space: nowrap; }
+  .ant-table-tbody > tr > td { padding: 8px 6px !important; font-size: 12.5px; }
 }
 
 /* ============================================================
    RESPONSIVE: SMALL MOBILE (< 576px)
    ============================================================ */
 @media (max-width: 576px) {
-  .ant-modal { width: 96% !important; margin: 4px; }
-  .ant-modal-body { padding: 10px !important; }
-  .ant-form-item { margin-bottom: 10px !important; }
+  .app-header { padding: 0 10px !important; }
+  .ant-modal { width: calc(100vw - 10px) !important; }
+  .ant-modal-body { padding: 12px 10px !important; }
+  .ant-form-item { margin-bottom: 12px !important; }
 }
 
 /* ============================================================
-   PROJECT: TABLE DEFINITION
+   PROJECT: TABLE DEFINITION & COLUMN REORDER
    ============================================================ */
 .table-definition {
   background: var(--color-bg-card);
@@ -448,6 +565,63 @@ code, pre, .mono { font-family: var(--font-mono); }
   margin-bottom: 20px;
 }
 .column-item { display: flex; gap: 10px; margin-bottom: 10px; align-items: center; }
+
+.column-definition-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  background: #fafafa;
+  border: 1px solid #e8e8e8;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+
+.column-definition-row:hover {
+  background: #f4f6f8;
+  border-color: #d9d9d9;
+}
+
+.column-definition-row.is-drag-over {
+  background: #e6f7ff !important;
+  border: 2px dashed #1890ff !important;
+  transform: scale(1.01);
+}
+
+.column-definition-row.is-dragging {
+  opacity: 0.45;
+  background: #f0f0f0;
+}
+
+.column-drag-handle {
+  cursor: grab;
+  color: #8c8c8c;
+  padding: 4px;
+  display: inline-flex;
+  align-items: center;
+  user-select: none;
+  transition: color 0.2s;
+}
+
+.column-drag-handle:hover {
+  color: #1890ff;
+}
+
+.column-drag-handle:active {
+  cursor: grabbing;
+}
+
+/* Ensure checkboxes in column editor never wrap vertically */
+.column-definition-row .ant-checkbox-wrapper,
+.column-checkboxes .ant-checkbox-wrapper {
+  white-space: nowrap !important;
+  flex-shrink: 0 !important;
+}
+
+.column-definition-row .ant-checkbox-wrapper > span:last-child {
+  white-space: nowrap !important;
+}
 
 /* ============================================================
    PROJECT: DATA TABLE
