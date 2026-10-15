@@ -299,7 +299,7 @@ def login():
     user = User.query.filter_by(username=username).first()
     if not user:
         logger.info(f'登录失败: 用户名 {username} 不存在')
-        return jsonify({'code': 401, 'message': '用户名或密码错误', 'data': None}), 401
+        return jsonify({'code': 401, 'message': '用户名或密码错误，如需重置请联系管理员', 'data': None}), 401
     
     from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -327,7 +327,7 @@ def login():
     is_first_login_with_default = user.first_login and is_default_password
     if not password_matches and not is_first_login_with_default:
         logger.info(f'登录失败: 用户名 {username} 的密码不正确')
-        return jsonify({'code': 401, 'message': '用户名或密码错误', 'data': None}), 401
+        return jsonify({'code': 401, 'message': '用户名或密码错误，如需重置请联系管理员', 'data': None}), 401
 
     # 如果是首次登录或使用默认密码登录，需要重置密码
     if user.first_login or (is_default_password and password == "000000"):

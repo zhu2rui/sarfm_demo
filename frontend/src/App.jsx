@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
-import { Layout, Menu, Button, Form, Input, Card, Typography, message, Checkbox, Select, Modal, Table, Dropdown, Drawer, Avatar, Tag, Space } from 'antd'
-import { UserOutlined, LockOutlined, DatabaseOutlined, BarChartOutlined, MenuOutlined, BugOutlined, CheckCircleOutlined, ExperimentOutlined, DownOutlined, SettingOutlined, LogoutOutlined, KeyOutlined, GlobalOutlined } from '@ant-design/icons'
+import { Layout, Menu, Button, Form, Input, Card, Typography, message, Checkbox, Select, Modal, Table, Dropdown, Drawer, Avatar, Tag, Space, Alert } from 'antd'
+import { UserOutlined, LockOutlined, DatabaseOutlined, BarChartOutlined, MenuOutlined, BugOutlined, CheckCircleOutlined, ExperimentOutlined, DownOutlined, SettingOutlined, LogoutOutlined, KeyOutlined, GlobalOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { BrowserRouter as Router, Routes, Route, Navigate, Link, useNavigate, useLocation } from 'react-router-dom'
 import axios from 'axios'
 import TableDefinition from './pages/TableDefinition'
@@ -65,6 +65,8 @@ const { Title } = Typography
 const Login = ({ setIsLoggedIn, t }) => {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [loginError, setLoginError] = useState('')
   const [form] = Form.useForm()
   const navigate = useNavigate()
   const location = useLocation()
@@ -80,6 +82,8 @@ const Login = ({ setIsLoggedIn, t }) => {
   }, [location.search, form])
 
   const handleLogin = async (values) => {
+    setLoading(true)
+    setLoginError('')
     try {
       console.log('=== 登录流程开始 ===')
       console.log('登录参数:', values)
@@ -88,76 +92,81 @@ const Login = ({ setIsLoggedIn, t }) => {
       const response = await axios.post('/api/v1/auth/login', values)
       
       console.log('登录响应:', response)
-      console.log('响应状态码:', response.status)
-      console.log('响应数据:', response.data)
-      console.log('响应数据code:', response.data.code)
-      console.log('响应数据message:', response.data.message)
-      
       if (response.data.code === 200) {
-        // 检查是否需要重置密码
-        console.log('是否需要重置密码:', response.data.data.need_reset_password)
-        
         if (response.data.data.need_reset_password) {
-          console.log('=== 首次登录流程 ===')
-          // 保存用户名到localStorage，用于密码重置页面
           localStorage.setItem('reset_username', response.data.data.username)
-          console.log('用户名已保存到localStorage:', response.data.data.username)
-          // 重定向到密码重置页面
-          console.log('准备显示信息提示:', response.data.message)
           message.info(response.data.message)
-          console.log('准备跳转到密码重置页面...')
           navigate('/reset-password')
-          console.log('跳转指令已执行')
         } else {
-          console.log('=== 正常登录流程 ===')
-          // 正常登录流程
           localStorage.setItem('token', response.data.data.token)
           localStorage.setItem('user', JSON.stringify(response.data.data.user))
           setIsLoggedIn(true)
-          console.log('准备显示成功提示: 登录成功')
-          message.success(t('login.loginBtn'))
-          console.log('准备跳转到主页面...')
+          message.success('登录成功')
           navigate('/table-definition')
         }
       } else {
-        console.log('登录失败分支，准备显示错误信息:', response.data.message)
-        message.error(response.data.message || t('login.loginBtn'))
-        console.log('登录失败:', response.data.message)
+        const errMsg = response.data.message || '登录失败，请核对用户名与密码。如忘记密码请联系管理员。'
+        setLoginError(errMsg)
+        message.error(errMsg)
       }
     } catch (error) {
-      console.error('Login error - 完整错误:', error)
-      console.error('Login error - 错误类型:', typeof error)
-      console.error('Login error - 错误响应:', error.response)
+      console.error('Login error:', error)
+      let errorMessage = '登录失败，请核对账号与密码。如忘记密码请联系管理员。'
       
       if (error.response) {
-        console.error('Login error - 响应状态:', error.response.status)
-        console.error('Login error - 响应数据:', error.response.data)
+        const status = error.response.status
+        const respMsg = error.response.data && error.response.data.message
         
-        let errorMessage = '登录失败，请检查账号密码'
-        if (error.response.status === 501 || error.response.status === 502 || error.response.status === 504) {
-          errorMessage = `服务网关响应异常 (${error.response.status})`
+        if (respMsg) {
+          errorMessage = respMsg
+        } else if (status === 401) {
+          errorMessage = '用户名或密码错误。如忘记密码请联系管理员重置。'
+        } else if (status === 403) {
+          errorMessage = '账号权限受限或已被禁用，请联系系统管理员。'
+        } else if (status === 404) {
+          errorMessage = '登录服务接口未找到 (404)，请确认访问地址或联系系统管理员。'
+        } else if (status === 500) {
+          errorMessage = '服务器内部发生错误 (500)，请联系管理员检查后台服务日志。'
+        } else if (status === 501 || status === 502 || status === 503 || status === 504) {
+          errorMessage = `服务网关响应异常 (${status})，服务可能正在重启维护，若持续无法登录请联系管理员。`
+        } else {
+          errorMessage = `请求发生异常 (${status})，请稍后重试或联系管理员。`
         }
-        if (error.response.data && error.response.data.message) {
-          errorMessage = error.response.data.message
-        }
-        console.log('从响应数据中获取到错误信息:', errorMessage)
-        message.error(errorMessage)
-        console.log('登录失败:', errorMessage)
       } else if (error.request) {
-        console.error('Login error - 请求已发送但没有收到响应:', error.request)
-        message.error('无法连接到服务器，请检查网络')
+        errorMessage = '无法连接到后端服务器（网络超时或网关不可达），请检查网络连接或联系系统管理员。'
       } else {
-        console.error('Login error - 请求配置错误:', error.message)
-        message.error(t('login.loginBtn'))
+        errorMessage = `登录发起异常: ${error.message}，请联系系统管理员。`
       }
+      
+      setLoginError(errorMessage)
+      message.error(errorMessage)
     } finally {
+      setLoading(false)
       console.log('=== 登录流程结束 ===')
     }
   }
 
   return (
     <div className="login-container" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#f0f2f5' }}>
-      <Card title={t('login.title')} className="login-card" style={{ width: 400 }}>
+      <Card title={t('login.title')} className="login-card" style={{ width: 420, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+        {loginError && (
+          <Alert
+            message="无法登录系统"
+            description={
+              <div>
+                <div style={{ fontWeight: 500, color: '#cf1322' }}>{loginError}</div>
+                <div style={{ marginTop: 6, fontSize: 12, color: '#8c8c8c' }}>
+                  提示：如需重置密码、开通账号或服务报障，请联系系统管理员处理。
+                </div>
+              </div>
+            }
+            type="error"
+            showIcon
+            closable
+            onClose={() => setLoginError('')}
+            style={{ marginBottom: 16 }}
+          />
+        )}
         <Form
           form={form}
           layout="vertical"
@@ -171,7 +180,10 @@ const Login = ({ setIsLoggedIn, t }) => {
             <Input
               prefix={<UserOutlined />}
               placeholder={t('login.username')}
-              onChange={(e) => setUsername(e.target.value)}
+              onChange={(e) => {
+                setUsername(e.target.value)
+                if (loginError) setLoginError('')
+              }}
             />
           </Form.Item>
           <Form.Item
@@ -182,18 +194,25 @@ const Login = ({ setIsLoggedIn, t }) => {
               prefix={<LockOutlined />}
               type="password"
               placeholder={t('login.password')}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => {
+                setPassword(e.target.value)
+                if (loginError) setLoginError('')
+              }}
             />
           </Form.Item>
           <Form.Item name="remember" valuePropName="checked" noStyle>
             <Checkbox>{t('login.remember')}</Checkbox>
           </Form.Item>
-          <Form.Item>
-            <Button type="primary" htmlType="submit" block>
+          <Form.Item style={{ marginTop: 16 }}>
+            <Button type="primary" htmlType="submit" loading={loading} block>
               {t('login.loginBtn')}
             </Button>
           </Form.Item>
         </Form>
+        <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #f0f0f0', textAlign: 'center', fontSize: 12, color: '#8c8c8c' }}>
+          <InfoCircleOutlined style={{ marginRight: 4 }} />
+          若无法登录、忘记密码或账号未开通，请联系系统管理员
+        </div>
       </Card>
     </div>
   )
