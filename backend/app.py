@@ -80,8 +80,9 @@ def after_request(response):
 
 # 提供前端静态文件
 @app.route('/')
+@app.route('/management')
+@app.route('/management/')
 def serve_index():
-    # 显式设置Content-Type为text/html
     from flask import make_response
     response = make_response(send_from_directory(app.config['FRONTEND_DIST'], 'index.html'))
     response.headers['Content-Type'] = 'text/html; charset=utf-8'
@@ -89,34 +90,32 @@ def serve_index():
 
 @app.route('/<path:path>')
 def serve_static(path):
-    # 根据文件扩展名设置正确的Content-Type
-    from flask import make_response, send_from_directory, abort
+    from flask import make_response, send_from_directory
     import mimetypes
     import os
-    
-    # 防止SPA通配路由吞掉不存在的API请求
-    if path.startswith('api/') or path == 'api':
-        return jsonify({'code': 404, 'message': 'API endpoint not found', 'data': None}), 404
 
-    # 检查文件是否存在
-    file_path = os.path.join(app.config['FRONTEND_DIST'], path)
-    if os.path.exists(file_path) and os.path.isfile(file_path):
-        # 获取文件的MIME类型
-        mime_type, _ = mimetypes.guess_type(path)
-        if not mime_type:
-            mime_type = 'application/octet-stream'
-        
-        # 发送文件并设置正确的Content-Type
-        response = make_response(send_from_directory(app.config['FRONTEND_DIST'], path))
-        response.headers['Content-Type'] = f'{mime_type}; charset=utf-8'
-        return response
-    else:
-        # SPA应用处理：所有未匹配的路由都返回index.html，让React Router处理
+    clean_path = path[len('management/'):] if path.startswith('management/') else path
+    if clean_path in ('management', ''):
         response = make_response(send_from_directory(app.config['FRONTEND_DIST'], 'index.html'))
         response.headers['Content-Type'] = 'text/html; charset=utf-8'
         return response
 
-# 用户模型
+    if clean_path.startswith('api/') or clean_path == 'api':
+        return jsonify({'code': 404, 'message': 'API endpoint not found', 'data': None}), 404
+
+    file_path = os.path.join(app.config['FRONTEND_DIST'], clean_path)
+    if os.path.exists(file_path) and os.path.isfile(file_path):
+        mime_type, _ = mimetypes.guess_type(clean_path)
+        if not mime_type:
+            mime_type = 'application/octet-stream'
+        response = make_response(send_from_directory(app.config['FRONTEND_DIST'], clean_path))
+        response.headers['Content-Type'] = f'{mime_type}; charset=utf-8'
+        return response
+    else:
+        response = make_response(send_from_directory(app.config['FRONTEND_DIST'], 'index.html'))
+        response.headers['Content-Type'] = 'text/html; charset=utf-8'
+        return response
+
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(50), unique=True, nullable=False)

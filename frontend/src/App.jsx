@@ -16,6 +16,13 @@ import CryoBoxManagement from './pages/CryoBoxManagement'
 import CryoGrid from './pages/CryoGrid'
 import { I18nProvider, useI18n } from './i18n/I18nContext'
 
+// 支持多环境与反向代理子路径
+const isManagement = typeof window !== 'undefined' && window.location.pathname.startsWith('/management');
+if (isManagement) {
+  axios.defaults.baseURL = '/management';
+}
+
+
 // 配置axios拦截器
 axios.interceptors.request.use(
   config => {
@@ -37,13 +44,13 @@ axios.interceptors.response.use(
     // 检查是否是登录API的401错误，如果是则不处理，让登录组件自己处理
     if (error.response && error.response.status === 401) {
       // 检查请求URL是否是登录API
-      const isLoginRequest = error.config.url === '/api/v1/auth/login'
+      const isLoginRequest = error.config && error.config.url && error.config.url.endsWith('/api/v1/auth/login')
       
       if (!isLoginRequest) {
         // 非登录请求的401错误，处理为登录过期
         localStorage.removeItem('token')
         localStorage.removeItem('user')
-        window.location.href = '/login'
+        window.location.href = isManagement ? '/management/login' : '/login'
         message.error('登录已过期，请重新登录')
       }
     }
@@ -126,7 +133,10 @@ const Login = ({ setIsLoggedIn, t }) => {
         console.error('Login error - 响应状态:', error.response.status)
         console.error('Login error - 响应数据:', error.response.data)
         
-        let errorMessage = t('login.loginBtn')
+        let errorMessage = '登录失败，请检查账号密码'
+        if (error.response.status === 501 || error.response.status === 502 || error.response.status === 504) {
+          errorMessage = `服务网关响应异常 (${error.response.status})`
+        }
         if (error.response.data && error.response.data.message) {
           errorMessage = error.response.data.message
         }
@@ -135,7 +145,7 @@ const Login = ({ setIsLoggedIn, t }) => {
         console.log('登录失败:', errorMessage)
       } else if (error.request) {
         console.error('Login error - 请求已发送但没有收到响应:', error.request)
-        message.error(t('login.loginBtn'))
+        message.error('无法连接到服务器，请检查网络')
       } else {
         console.error('Login error - 请求配置错误:', error.message)
         message.error(t('login.loginBtn'))
@@ -954,7 +964,7 @@ function App() {
   return (
     <I18nProvider>
       <div className="App">
-        <Router>
+        <Router basename={isManagement ? '/management' : undefined}>
           <Routes>
             <Route path="/login" element={<LoginWithI18n setIsLoggedIn={setIsLoggedIn} />} />
             {/* 密码重置页面，允许未登录状态访问 */}
