@@ -283,8 +283,8 @@ def login():
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
     
-    data = request.get_json()
-    username = data.get('username')
+    data = request.get_json() or {}
+    username = (data.get('username') or '').strip()
     password = data.get('password')
     remember = data.get('remember', False)
     
@@ -436,7 +436,7 @@ def reset_password():
         logger.debug(f'请求头: {dict(request.headers)}')
         
         # 获取请求数据
-        data = request.get_json()
+        data = request.get_json() or {}
         logger.debug(f'原始请求数据: {data}')
         
         # 验证请求数据
@@ -556,10 +556,10 @@ def add_user(current_user):
     if current_user.role != 'admin':
         return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
     
-    data = request.get_json()
-    username = data.get('username')
+    data = request.get_json() or {}
+    username = (data.get('username') or '').strip()
     password = data.get('password')
-    role = data.get('role')
+    role = (data.get('role') or '').strip()
     
     if not username or not role:
         return jsonify({'code': 400, 'message': '用户名和角色不能为空', 'data': None}), 400
@@ -612,7 +612,7 @@ def update_user(current_user, user_id):
     if not user:
         return jsonify({'code': 404, 'message': '用户不存在', 'data': None}), 404
     
-    data = request.get_json()
+    data = request.get_json() or {}
     password = data.get('password')
     role = data.get('role')
     
@@ -625,6 +625,8 @@ def update_user(current_user, user_id):
     if role:
         if role not in ['admin', 'leader', 'member']:
             return jsonify({'code': 400, 'message': '角色必须是admin、leader或member', 'data': None}), 400
+        if user.username == 'admin' and role != 'admin':
+            return jsonify({'code': 400, 'message': '不能修改admin用户的管理员角色', 'data': None}), 400
         user.role = role
     
     try:
@@ -664,6 +666,10 @@ def delete_user(current_user, user_id):
         return jsonify({'code': 400, 'message': '不能删除admin用户', 'data': None}), 400
     
     try:
+        # 转移该用户创建的库存数据给当前管理员，防止数据丢失与外键报错
+        InventoryData.query.filter_by(created_by=user_id).update({'created_by': current_user.id})
+        # 清理该用户的操作日志，防止外键报错
+        OperationLog.query.filter_by(user_id=user_id).delete()
         db.session.delete(user)
         db.session.commit()
         return jsonify({'code': 200, 'message': '用户删除成功', 'data': None}), 200
@@ -679,17 +685,35 @@ def create_table_structure(current_user):
     if current_user.role != 'admin':
         return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
     
-    data = request.get_json()
-    table_name = data.get('table_name')
+    data = request.get_json() or {}
+    table_name = (data.get('table_name') or '').strip()
     columns = data.get('columns')
     
-    if not table_name or not columns or len(columns) == 0:
-        return jsonify({'code': 400, 'message': '表格名称和列配置不能为空，列配置至少需要一列', 'data': None}), 400
+    if not table_name or not columns:
+        return jsonify({'code': 400, 'message': '表格名称和列配置不能为空', 'data': None}), 400
     
-    # 验证列配置格式
+    # 检查表格名称不能包含 Excel sheet 非法字符
+    if re.search(r'[\\/?*:[\]]', table_name):
+        return jsonify({'code': 400, 'message': '表格名称不能包含特殊字符: \\ / ? * : [ ]', 'data': None}), 400
+
+    if not isinstance(columns, list) or len(columns) == 0:
+        return jsonify({'code': 400, 'message': '列配置必须是非空数组，至少需要一列', 'data': None}), 400
+    
+    # 检查表格名称是否已存在
+    if TableStructure.query.filter_by(table_name=table_name).first():
+        return jsonify({'code': 400, 'message': f'表格名称「{table_name}」已存在', 'data': None}), 400
+
+    # 验证列配置格式与列名唯一性
+    col_names = set()
     for column in columns:
-        if not column.get('column_name') or not column.get('data_type'):
+        if not isinstance(column, dict):
+            return jsonify({'code': 400, 'message': '列配置项必须是对象', 'data': None}), 400
+        cname = column.get('column_name', '').strip()
+        if not cname or not column.get('data_type'):
             return jsonify({'code': 400, 'message': '每一列都必须有列名和数据类型', 'data': None}), 400
+        if cname in col_names:
+            return jsonify({'code': 400, 'message': f'表格中存在重复列名: 「{cname}」', 'data': None}), 400
+        col_names.add(cname)
         # 储存列与自增+前缀互斥
         if column.get('is_storage'):
             column['autoIncrement'] = False
@@ -699,7 +723,7 @@ def create_table_structure(current_user):
             column['hidden'] = False
     
     # 将列配置转换为JSON字符串
-    columns_json = json.dumps(columns)
+    columns_json = json.dumps(columns, ensure_ascii=False)
     
     try:
         new_table = TableStructure(
@@ -707,6 +731,18 @@ def create_table_structure(current_user):
             columns=columns_json
         )
         db.session.add(new_table)
+        db.session.flush()
+
+        # 初始化自增序列
+        for column in columns:
+            if column.get('autoIncrement'):
+                seq = AutoIncrementSequence(
+                    table_id=new_table.id,
+                    column_name=column['column_name'],
+                    current_value=0
+                )
+                db.session.add(seq)
+
         db.session.commit()
         
         return jsonify({
@@ -781,21 +817,36 @@ def update_table_structure(current_user, table_id):
     if not table:
         return jsonify({'code': 404, 'message': '表格结构不存在', 'data': None}), 404
     
-    data = request.get_json()
+    data = request.get_json() or {}
     table_name = data.get('table_name')
     columns = data.get('columns')
     
-    if table_name:
+    if table_name is not None:
+        table_name = table_name.strip()
+        if not table_name:
+            return jsonify({'code': 400, 'message': '表格名称不能为空', 'data': None}), 400
+        if re.search(r'[\\/?*:[\]]', table_name):
+            return jsonify({'code': 400, 'message': '表格名称不能包含特殊字符: \\ / ? * : [ ]', 'data': None}), 400
+        dup = TableStructure.query.filter(TableStructure.table_name == table_name, TableStructure.id != table_id).first()
+        if dup:
+            return jsonify({'code': 400, 'message': f'表格名称「{table_name}」已存在', 'data': None}), 400
         table.table_name = table_name
     
-    if columns:
-        if len(columns) == 0:
-            return jsonify({'code': 400, 'message': '列配置不能为空，至少需要一列', 'data': None}), 400
+    if columns is not None:
+        if not isinstance(columns, list) or len(columns) == 0:
+            return jsonify({'code': 400, 'message': '列配置必须是非空数组，至少需要一列', 'data': None}), 400
         
-        # 验证列配置格式
+        # 验证列配置格式与列名唯一性
+        col_names = set()
         for column in columns:
-            if not column.get('column_name') or not column.get('data_type'):
+            if not isinstance(column, dict):
+                return jsonify({'code': 400, 'message': '列配置项必须是对象', 'data': None}), 400
+            cname = column.get('column_name', '').strip()
+            if not cname or not column.get('data_type'):
                 return jsonify({'code': 400, 'message': '每一列都必须有列名和数据类型', 'data': None}), 400
+            if cname in col_names:
+                return jsonify({'code': 400, 'message': f'表格中存在重复列名: 「{cname}」', 'data': None}), 400
+            col_names.add(cname)
             # 储存列与自增+前缀互斥
             if column.get('is_storage'):
                 column['autoIncrement'] = False
@@ -804,7 +855,7 @@ def update_table_structure(current_user, table_id):
             if 'hidden' not in column:
                 column['hidden'] = False
         
-        table.columns = json.dumps(columns)
+        table.columns = json.dumps(columns, ensure_ascii=False)
         
         # 获取该表格所有数据，按ID升序排序，用于处理自增列补全
         inventory_data_list = InventoryData.query.filter_by(table_id=table_id).order_by(InventoryData.id.asc()).all()
@@ -1050,7 +1101,10 @@ def delete_table_structure(current_user, table_id):
         # 删除关联的自增序列
         AutoIncrementSequence.query.filter_by(table_id=table_id).delete()
         # 删除冻存格中引用的本表格关联格
-        CryoCell.query.filter_by(linked_table_id=table_id).delete()
+        data_ids = [d.id for d in InventoryData.query.filter_by(table_id=table_id).all()]
+        if data_ids:
+            CryoCell.query.filter(CryoCell.linked_data_id.in_(data_ids)).delete(synchronize_session=False)
+        CryoCell.query.filter_by(linked_table_id=table_id).delete(synchronize_session=False)
         # 删除关联的库存数据
         InventoryData.query.filter_by(table_id=table_id).delete()
         # 删除表格结构
@@ -1071,6 +1125,8 @@ def delete_all_tables(current_user):
         return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
     
     try:
+        # 删除所有冻存格中引用的表格关联
+        CryoCell.query.filter(or_(CryoCell.linked_table_id.isnot(None), CryoCell.linked_data_id.isnot(None))).delete(synchronize_session=False)
         # 删除所有关联的库存数据
         InventoryData.query.delete()
         # 删除所有自增序列
@@ -1093,7 +1149,7 @@ def add_inventory_data(current_user, table_id):
     if not table:
         return jsonify({'code': 404, 'message': '表格结构不存在', 'data': None}), 404
     
-    data = request.get_json()
+    data = request.get_json() or {}
     inventory_data = data.get('data')
     
     if not inventory_data or not isinstance(inventory_data, dict):
@@ -1134,6 +1190,7 @@ def add_inventory_data(current_user, table_id):
 
     # 验证并处理存储列
     storage_positions_to_link = []  # [(column_name, position_info), ...]
+    seen_pos_keys = set()
     for column in columns:
         if column.get('is_storage'):
             col_name = column['column_name']
@@ -1141,14 +1198,29 @@ def add_inventory_data(current_user, table_id):
             if not storage_data or not isinstance(storage_data, dict) or not storage_data.get('_storage'):
                 continue
             positions = storage_data.get('_positions', [])
-            if not positions:
+            if not isinstance(positions, list) or not positions:
                 continue
             for pos in positions:
+                if not isinstance(pos, dict):
+                    return jsonify({'code': 400, 'message': '存储位置数组中的元素必须是对象', 'data': None}), 400
                 box_id = pos.get('box_id')
                 row = pos.get('row')
                 col = pos.get('col')
-                if not box_id or not row or not col:
+                if not box_id or row is None or col is None:
                     return jsonify({'code': 400, 'message': f'存储位置格式错误: {pos}', 'data': None}), 400
+                try:
+                    row_int = int(row)
+                    col_int = int(col)
+                    if row_int < 1 or row_int > 9 or col_int < 1 or col_int > 9:
+                        return jsonify({'code': 400, 'message': f'存储位置坐标超出范围(1-9): {pos}', 'data': None}), 400
+                except (ValueError, TypeError):
+                    return jsonify({'code': 400, 'message': f'存储位置坐标必须是整数: {pos}', 'data': None}), 400
+                pos['row'] = row_int
+                pos['col'] = col_int
+                pos_key = (box_id, row_int, col_int)
+                if pos_key in seen_pos_keys:
+                    return jsonify({'code': 400, 'message': f'请求数据中包含重复的存储位置: {pos.get("label", "")}', 'data': None}), 400
+                seen_pos_keys.add(pos_key)
                 # 检查盒子存在
                 box = CryoBox.query.get(box_id)
                 if not box:
@@ -1160,7 +1232,7 @@ def add_inventory_data(current_user, table_id):
                 storage_positions_to_link.append((col_name, pos))
 
     # 将库存数据转换为JSON字符串
-    data_json = json.dumps(inventory_data)
+    data_json = json.dumps(inventory_data, ensure_ascii=False)
 
     try:
         new_data = InventoryData(
@@ -1234,24 +1306,35 @@ def get_inventory_data_list(current_user, table_id):
     if not table:
         return jsonify({'code': 404, 'message': '表格结构不存在', 'data': None}), 404
     
-    # 获取查询参数
-    page = int(request.args.get('page', 1))
-    per_page = int(request.args.get('per_page', 10))
+    # 获取查询参数（防非法输入或负数越界）
+    try:
+        page = max(1, int(request.args.get('page', 1)))
+    except (ValueError, TypeError):
+        page = 1
+    try:
+        per_page = min(500, max(1, int(request.args.get('per_page', 10))))
+    except (ValueError, TypeError):
+        per_page = 10
     search = request.args.get('search', '')
     filters = request.args.get('filters', '')
     
     # 构建查询
     query = InventoryData.query.filter_by(table_id=table_id)
     
-    # 如果有搜索关键词，在SQL层使用LIKE模糊匹配，避免把全表读入内存导致OOM
+    # 如果有搜索关键词，在SQL层使用LIKE模糊匹配，同时支持明文字符与历史转义unicode
     if search:
         search_pattern = f"%{search}%"
-        query = query.filter(
-            or_(
-                InventoryData.data.like(search_pattern),
-                InventoryData.created_at.like(search_pattern)
-            )
-        )
+        patterns = [
+            InventoryData.data.like(search_pattern),
+            InventoryData.created_at.like(search_pattern)
+        ]
+        try:
+            escaped_search = json.dumps(search)[1:-1]
+            if escaped_search != search:
+                patterns.append(InventoryData.data.like(f"%{escaped_search}%"))
+        except Exception:
+            pass
+        query = query.filter(or_(*patterns))
     
     # 执行查询并使用默认排序与统一的分页逻辑
     paginated_data = query.order_by(
@@ -1326,7 +1409,7 @@ def update_inventory_data(current_user, table_id, data_id):
     if not inventory_data:
         return jsonify({'code': 404, 'message': '库存数据不存在', 'data': None}), 404
     
-    data = request.get_json()
+    data = request.get_json() or {}
     new_data = data.get('data')
 
     if not new_data or not isinstance(new_data, dict):
@@ -1346,18 +1429,20 @@ def update_inventory_data(current_user, table_id, data_id):
                 if isinstance(new_storage, dict) and new_storage.get('_storage'):
                     new_positions = new_storage.get('_positions', [])
                 # 找出被移除的位置（在旧不在新）
-                new_pos_keys = {(p['box_id'], p['row'], p['col']) for p in new_positions}
+                new_pos_keys = {(p['box_id'], p['row'], p['col']) for p in new_positions if isinstance(p, dict) and 'box_id' in p and 'row' in p and 'col' in p}
                 for old_pos in old_positions:
-                    key = (old_pos['box_id'], old_pos['row'], old_pos['col'])
-                    if key not in new_pos_keys:
-                        cell = CryoCell.query.filter_by(
-                            box_id=old_pos['box_id'], row=old_pos['row'], col=old_pos['col']
-                        ).first()
-                        if cell:
-                            db.session.delete(cell)
+                    if isinstance(old_pos, dict) and 'box_id' in old_pos and 'row' in old_pos and 'col' in old_pos:
+                        key = (old_pos['box_id'], old_pos['row'], old_pos['col'])
+                        if key not in new_pos_keys:
+                            cell = CryoCell.query.filter_by(
+                                box_id=old_pos['box_id'], row=old_pos['row'], col=old_pos['col']
+                            ).first()
+                            if cell:
+                                db.session.delete(cell)
 
     # 验证并处理新的存储位置
     storage_positions_to_link = []
+    seen_pos_keys = set()
     for column in columns:
         if column.get('is_storage'):
             col_name = column['column_name']
@@ -1365,25 +1450,40 @@ def update_inventory_data(current_user, table_id, data_id):
             if not storage_data or not isinstance(storage_data, dict) or not storage_data.get('_storage'):
                 continue
             positions = storage_data.get('_positions', [])
-            if not positions:
+            if not isinstance(positions, list) or not positions:
                 continue
             for pos in positions:
+                if not isinstance(pos, dict):
+                    return jsonify({'code': 400, 'message': '存储位置数组中的元素必须是对象', 'data': None}), 400
                 box_id = pos.get('box_id')
                 row = pos.get('row')
                 col = pos.get('col')
-                if not box_id or not row or not col:
+                if not box_id or row is None or col is None:
                     return jsonify({'code': 400, 'message': f'存储位置格式错误: {pos}', 'data': None}), 400
+                try:
+                    row_int = int(row)
+                    col_int = int(col)
+                    if row_int < 1 or row_int > 9 or col_int < 1 or col_int > 9:
+                        return jsonify({'code': 400, 'message': f'存储位置坐标超出范围(1-9): {pos}', 'data': None}), 400
+                except (ValueError, TypeError):
+                    return jsonify({'code': 400, 'message': f'存储位置坐标必须是整数: {pos}', 'data': None}), 400
+                pos['row'] = row_int
+                pos['col'] = col_int
+                pos_key = (box_id, row_int, col_int)
+                if pos_key in seen_pos_keys:
+                    return jsonify({'code': 400, 'message': f'请求数据中包含重复的存储位置: {pos.get("label", "")}', 'data': None}), 400
+                seen_pos_keys.add(pos_key)
                 box = CryoBox.query.get(box_id)
                 if not box:
                     return jsonify({'code': 400, 'message': f'冻存盒不存在: {box_id}', 'data': None}), 400
-                existing = CryoCell.query.filter_by(box_id=box_id, row=row, col=col).first()
+                existing = CryoCell.query.filter_by(box_id=box_id, row=row_int, col=col_int).first()
                 if existing and _is_meaningful_cryo_cell(existing):
                     if existing.linked_data_id != data_id:
                         return jsonify({'code': 400, 'message': f'位置 {pos.get("label", "")} 已被占用', 'data': None}), 400
                 storage_positions_to_link.append((col_name, pos))
 
     # 更新库存数据
-    inventory_data.data = json.dumps(new_data)
+    inventory_data.data = json.dumps(new_data, ensure_ascii=False)
 
     try:
         # 关联新存储位置（同一事务内）
@@ -1504,7 +1604,7 @@ def batch_delete_inventory_data(current_user, table_id):
         return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
     
     # 获取要删除的ID列表
-    data = request.get_json()
+    data = request.get_json() or {}
     ids = data.get('ids', [])
     
     if not ids or not isinstance(ids, list) or len(ids) == 0:
@@ -1537,7 +1637,7 @@ def batch_add_inventory_data(current_user, table_id):
     if current_user.role not in ['admin', 'leader']:
         return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
     
-    data = request.get_json()
+    data = request.get_json() or {}
     items = data.get('items')
     
     if not items or not isinstance(items, list) or len(items) == 0:
@@ -1562,7 +1662,7 @@ def batch_add_inventory_data(current_user, table_id):
             auto_seq_map[c_name] = (prefix, seq)
 
         for item in items:
-            if not item.get('data') or not isinstance(item.get('data'), dict):
+            if not isinstance(item, dict) or not item.get('data') or not isinstance(item.get('data'), dict):
                 error_count += 1
                 error_messages.append(f'数据格式错误: {str(item)}')
                 continue
@@ -1623,14 +1723,18 @@ def get_inventory_stats(current_user, table_id):
     
     # 时间范围过滤
     if start_date:
-        start_dt = datetime.strptime(start_date, '%Y-%m-%d')
-        query = query.filter(InventoryData.created_at >= start_dt)
+        try:
+            start_dt = datetime.strptime(start_date, '%Y-%m-%d')
+            query = query.filter(InventoryData.created_at >= start_dt)
+        except (ValueError, TypeError):
+            return jsonify({'code': 400, 'message': 'start_date 格式无效，应为 YYYY-MM-DD', 'data': None}), 400
     
     if end_date:
-        end_dt = datetime.strptime(end_date, '%Y-%m-%d')
-        # 结束日期需要加一天，以便包含当天
-        end_dt = end_dt + timedelta(days=1)
-        query = query.filter(InventoryData.created_at < end_dt)
+        try:
+            end_dt = datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1)
+            query = query.filter(InventoryData.created_at < end_dt)
+        except (ValueError, TypeError):
+            return jsonify({'code': 400, 'message': 'end_date 格式无效，应为 YYYY-MM-DD', 'data': None}), 400
     
     # 获取所有数据
     all_data = query.all()
@@ -1642,10 +1746,16 @@ def get_inventory_stats(current_user, table_id):
         group_dict = {}
         
         for item in all_data:
-            item_data = json.loads(item.data)
+            item_data = json.loads(item.data) if isinstance(item.data, str) else (item.data or {})
             # 检查分组字段是否存在
             if group_by in item_data:
-                key = item_data[group_by]
+                raw_val = item_data[group_by]
+                if isinstance(raw_val, dict):
+                    key = raw_val.get('_text', str(raw_val))
+                elif isinstance(raw_val, list):
+                    key = ', '.join(str(x) for x in raw_val)
+                else:
+                    key = str(raw_val) if raw_val is not None else '(空)'
                 if key not in group_dict:
                     group_dict[key] = 0
                 group_dict[key] += 1
@@ -1728,6 +1838,13 @@ def export_table_data(current_user, table_id):
                 # 如果值为None，转换为空字符串
                 if value is None:
                     value = ''
+                elif isinstance(value, dict):
+                    if '_text' in value:
+                        value = str(value['_text'])
+                    elif '_storage' in value:
+                        value = str(value.get('_text', ''))
+                    else:
+                        value = json.dumps(value, ensure_ascii=False)
                 else:
                     value = str(value)
                 # 处理CSV特殊字符
@@ -1781,7 +1898,7 @@ def import_table_data(current_user, table_id):
         return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
     
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         csv_content = data.get('csv_content')
         
         if not csv_content:
@@ -1831,7 +1948,7 @@ def import_table_data(current_user, table_id):
                 # 保存库存数据记录
                 new_data = InventoryData(
                     table_id=table_id,
-                    data=json.dumps(row_data),
+                    data=json.dumps(row_data, ensure_ascii=False),
                     created_by=current_user.id
                 )
                 db.session.add(new_data)
@@ -1841,6 +1958,46 @@ def import_table_data(current_user, table_id):
                 error_messages.append(f'第{row_num}行，处理失败: {str(e)}')
         
         db.session.commit()
+
+        # 同步更新该表所有自增序列的当前最大值
+        try:
+            for col in columns:
+                if col.get('autoIncrement'):
+                    column_name = col['column_name']
+                    prefix = col.get('prefix') or ''
+                    all_data = InventoryData.query.filter_by(table_id=table_id).all()
+                    max_value = 0
+                    if all_data:
+                        pattern = re.compile(rf'^{re.escape(prefix)}(\d+)$')
+                        for item in all_data:
+                            try:
+                                item_data = json.loads(item.data) if isinstance(item.data, str) else (item.data or {})
+                                if column_name in item_data:
+                                    val = str(item_data[column_name])
+                                    m = pattern.match(val)
+                                    if m:
+                                        num = int(m.group(1))
+                                        if num > max_value:
+                                            max_value = num
+                            except Exception:
+                                pass
+                    seq = AutoIncrementSequence.query.filter_by(
+                        table_id=table_id,
+                        column_name=column_name
+                    ).first()
+                    if seq:
+                        if max_value > seq.current_value:
+                            seq.current_value = max_value
+                    else:
+                        seq = AutoIncrementSequence(
+                            table_id=table_id,
+                            column_name=column_name,
+                            current_value=max_value
+                        )
+                        db.session.add(seq)
+            db.session.commit()
+        except Exception as seq_err:
+            print(f"Auto-increment sequence sync error in import_table_data: {seq_err}")
         
         return jsonify({
             'code': 200,
@@ -1859,9 +2016,9 @@ def import_table_data(current_user, table_id):
 @app.route('/api/v1/bugs', methods=['POST'])
 @token_required
 def submit_bug(current_user):
-    data = request.get_json()
-    title = data.get('title')
-    content = data.get('content')
+    data = request.get_json() or {}
+    title = (data.get('title') or '').strip()
+    content = (data.get('content') or '').strip()
     
     if not title or not content:
         return jsonify({'code': 400, 'message': '标题和内容不能为空', 'data': None}), 400
@@ -2036,15 +2193,23 @@ def export_all_data(current_user):
             # 显示当前工作簿中的工作表（创建数据工作表前）
             print(f"当前工作簿中的工作表（创建数据工作表前）: {wb.sheetnames}")
             
-            # 创建数据工作表，确保工作表名称不超过31个字符
-            data_sheet_name = table_name[:31]
+            # 创建数据工作表与属性工作表，确保无非法字符且名称唯一不冲突
+            def _get_unique_sheet_title(base_name):
+                clean_name = re.sub(r'[\\/?*:[\]]', '_', base_name).strip()[:28] or 'Sheet'
+                cand = clean_name
+                c_idx = 1
+                while cand in wb.sheetnames:
+                    cand = f"{clean_name[:24]}_{c_idx}"
+                    c_idx += 1
+                return cand
+
+            data_sheet_name = _get_unique_sheet_title(table_name)
             data_ws = wb.create_sheet(title=data_sheet_name)
             print(f"成功创建数据工作表: {data_sheet_name}")
             print(f"数据工作表对象: {data_ws}")
             print(f"当前工作簿中的工作表（创建数据工作表后）: {wb.sheetnames}")
             
-            # 创建列属性工作表，名称不超过31个字符
-            properties_sheet_name = f"{table_name[:25]}_属性"
+            properties_sheet_name = _get_unique_sheet_title(f"{table_name[:20]}_属性")
             properties_ws = wb.create_sheet(title=properties_sheet_name)
             print(f"成功创建列属性工作表: {properties_sheet_name}")
             print(f"属性工作表对象: {properties_ws}")
@@ -2196,10 +2361,15 @@ def export_all_data(current_user):
             for c in cells:
                 box = CryoBox.query.get(c.box_id)
                 box_name = box.box_name if box else ''
-                cell_data = json.loads(c.data) if c.data else {}
+                try:
+                    cell_data = json.loads(c.data) if c.data else {}
+                except Exception:
+                    cell_data = {}
                 is_manual = cell_data.get('_manual', False)
                 reason = cell_data.get('_reason', '')
-                label = f'{ROW_LABELS[c.row-1]}{c.col}'
+                r_idx = c.row - 1
+                row_char = ROW_LABELS[r_idx] if (0 <= r_idx < len(ROW_LABELS)) else str(c.row)
+                label = f'{row_char}{c.col}'
 
                 # Linked info for re-linking on import
                 linked_table_name = ''
@@ -2258,7 +2428,7 @@ def export_all_data(current_user):
         error_trace = traceback.format_exc()
         print(error_msg)
         print(error_trace)
-        return jsonify({'code': 500, 'message': '服务器内部错误，请联系管理员', 'data': None}), 500
+        return jsonify({'code': 500, 'message': f'导出所有数据失败: {str(e)}', 'data': None}), 500
 
 # 数据导入API - 从XLS文件导入数据
 @app.route('/api/v1/import-data', methods=['POST'])
@@ -2469,6 +2639,10 @@ def import_data(current_user):
                 if existing_table:
                     # 如果表格已存在，删除现有表格及其数据
                     print(f"表格{sheet_name}已存在，删除现有表格和数据")
+                    old_data_ids = [d.id for d in InventoryData.query.filter_by(table_id=existing_table.id).all()]
+                    if old_data_ids:
+                        CryoCell.query.filter(CryoCell.linked_data_id.in_(old_data_ids)).delete(synchronize_session=False)
+                    CryoCell.query.filter_by(linked_table_id=existing_table.id).delete(synchronize_session=False)
                     InventoryData.query.filter_by(table_id=existing_table.id).delete()
                     AutoIncrementSequence.query.filter_by(table_id=existing_table.id).delete()
                     db.session.delete(existing_table)
@@ -2553,7 +2727,7 @@ def import_data(current_user):
                         # 保存库存数据记录
                         new_data = InventoryData(
                             table_id=new_table.id,
-                            data=json.dumps(row_data),
+                            data=json.dumps(row_data, ensure_ascii=False),
                             created_by=current_user.id,
                             created_at=created_at
                         )
@@ -2659,16 +2833,20 @@ def import_data(current_user):
                 tws = wb['_cryo_tanks']
                 rows = list(tws.iter_rows(min_row=2, values_only=True))
                 for row in rows:
-                    if not row[1]:
+                    if not row or len(row) < 2 or not row[1]:
                         continue
-                    existing = NitrogenTank.query.filter_by(name=row[1]).first()
+                    tank_name = str(row[1]).strip()
+                    if not tank_name:
+                        continue
+                    tank_desc = str(row[2]) if len(row) > 2 and row[2] is not None else ''
+                    existing = NitrogenTank.query.filter_by(name=tank_name).first()
                     if not existing:
-                        tank = NitrogenTank(name=row[1], description=row[2] or '')
+                        tank = NitrogenTank(name=tank_name, description=tank_desc)
                         db.session.add(tank)
                         db.session.flush()
-                        tank_name_to_id[row[1]] = tank.id
+                        tank_name_to_id[tank_name] = tank.id
                     else:
-                        tank_name_to_id[row[1]] = existing.id
+                        tank_name_to_id[tank_name] = existing.id
                 cryo_results.append(f"Imported {len(rows)} tanks")
 
             # Import boxes
@@ -2676,17 +2854,20 @@ def import_data(current_user):
                 bws = wb['_cryo_boxes']
                 rows = list(bws.iter_rows(min_row=2, values_only=True))
                 for row in rows:
-                    tank_name = row[1]
-                    box_name = row[2]
+                    if not row or len(row) < 3:
+                        continue
+                    tank_name = str(row[1]).strip() if row[1] else ''
+                    box_name = str(row[2]).strip() if row[2] else ''
                     if not box_name:
                         continue
                     tank_id = tank_name_to_id.get(tank_name)
                     if not tank_id:
                         continue
+                    box_desc = str(row[3]) if len(row) > 3 and row[3] is not None else ''
                     existing = CryoBox.query.filter_by(tank_id=tank_id, box_name=box_name).first()
                     if not existing:
                         box = CryoBox(tank_id=tank_id, box_name=box_name,
-                            box_description=row[3] or '', columns='[]')
+                            box_description=box_desc, columns='[]')
                         db.session.add(box)
                         db.session.flush()
                         box_name_to_id[f"{tank_name}|{box_name}"] = box.id
@@ -2702,13 +2883,21 @@ def import_data(current_user):
                 rows = list(cws.iter_rows(min_row=2, values_only=True))
                 linked_cells = []
                 for row in rows:
-                    box_name = row[0]
-                    cell_row = int(row[1]) if row[1] else 0
-                    cell_col = int(row[2]) if row[2] else 0
-                    is_manual = row[4] == 'True'
-                    reason = row[5] or ''
-                    linked_table_name = row[6] or ''
-                    linked_data_index_str = str(row[7] or '')
+                    if not row or len(row) < 3:
+                        continue
+                    box_name = str(row[0]).strip() if row[0] else ''
+                    try:
+                        cell_row = int(row[1]) if row[1] is not None else 0
+                    except (ValueError, TypeError):
+                        cell_row = 0
+                    try:
+                        cell_col = int(row[2]) if row[2] is not None else 0
+                    except (ValueError, TypeError):
+                        cell_col = 0
+                    is_manual = (str(row[4]).strip().lower() == 'true') if len(row) > 4 and row[4] is not None else False
+                    reason = str(row[5]) if len(row) > 5 and row[5] is not None else ''
+                    linked_table_name = str(row[6]).strip() if len(row) > 6 and row[6] is not None else ''
+                    linked_data_index_str = str(row[7]).strip() if len(row) > 7 and row[7] is not None else ''
 
                     # Find box
                     box_id = None
@@ -2734,7 +2923,10 @@ def import_data(current_user):
                         lt = TableStructure.query.filter_by(table_name=linked_table_name).first()
                         if lt:
                             all_rows = InventoryData.query.filter_by(table_id=lt.id).order_by(InventoryData.created_at).all()
-                            ld_idx = int(linked_data_index_str)
+                            try:
+                                ld_idx = int(linked_data_index_str)
+                            except (ValueError, TypeError):
+                                ld_idx = -1
                             if 0 <= ld_idx < len(all_rows):
                                 ld = all_rows[ld_idx]
                                 cell_data = {
@@ -2742,8 +2934,8 @@ def import_data(current_user):
                                     '_table_id': lt.id,
                                     '_data_id': ld.id,
                                     '_table_name': lt.table_name,
-                                    '_table_columns': json.loads(lt.columns),
-                                    '_row_data': json.loads(ld.data)
+                                    '_table_columns': json.loads(lt.columns) if lt.columns else [],
+                                    '_row_data': json.loads(ld.data) if ld.data else {}
                                 }
                                 linked_cells.append((box_id, cell_row, cell_col, lt.id, ld.id))
 
@@ -2834,7 +3026,7 @@ def import_data(current_user):
 @app.route('/api/v1/auth/change-password', methods=['POST'])
 @token_required
 def change_password(current_user):
-    data = request.get_json()
+    data = request.get_json() or {}
     current_password = data.get('current_password')
     new_password = data.get('new_password')
     confirm_password = data.get('confirm_password')
@@ -2955,9 +3147,12 @@ def set_backup_config_api(current_user):
         return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
     
     try:
-        data = request.get_json()
-        backup_interval_days = data.get('backup_interval_days', 7)
-        enabled = data.get('enabled', False)
+        data = request.get_json() or {}
+        try:
+            backup_interval_days = int(data.get('backup_interval_days', 7))
+        except (ValueError, TypeError):
+            return jsonify({'code': 400, 'message': '备份间隔必须为有效整数', 'data': None}), 400
+        enabled = bool(data.get('enabled', False))
         
         if backup_interval_days < 1:
             return jsonify({'code': 400, 'message': '备份间隔不能少于1天', 'data': None}), 400
@@ -3021,8 +3216,8 @@ def download_backup_api(current_user, filename):
     
     from werkzeug.utils import secure_filename
     safe_filename = secure_filename(filename)
-    if not safe_filename or safe_filename != filename:
-        return jsonify({'code': 400, 'message': '非法文件名', 'data': None}), 400
+    if not safe_filename or safe_filename != filename or not (safe_filename.startswith('inventory_backup_') and safe_filename.endswith('.db')):
+        return jsonify({'code': 400, 'message': '非法备份文件名，仅允许操作标准备份文件', 'data': None}), 400
     
     backup_path = os.path.abspath(os.path.join(BACKUP_FOLDER, safe_filename))
     if not backup_path.startswith(os.path.abspath(BACKUP_FOLDER)):
@@ -3045,8 +3240,8 @@ def delete_backup_api(current_user, filename):
     
     from werkzeug.utils import secure_filename
     safe_filename = secure_filename(filename)
-    if not safe_filename or safe_filename != filename:
-        return jsonify({'code': 400, 'message': '非法文件名', 'data': None}), 400
+    if not safe_filename or safe_filename != filename or not (safe_filename.startswith('inventory_backup_') and safe_filename.endswith('.db')):
+        return jsonify({'code': 400, 'message': '非法备份文件名，仅允许操作标准备份文件', 'data': None}), 400
     
     backup_path = os.path.abspath(os.path.join(BACKUP_FOLDER, safe_filename))
     if not backup_path.startswith(os.path.abspath(BACKUP_FOLDER)):
@@ -3092,10 +3287,12 @@ def create_cryo_tank(current_user):
     if current_user.role != 'admin':
         return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
 
-    data = request.get_json()
-    name = data.get('name', '').strip()
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
     if not name:
         return jsonify({'code': 400, 'message': '液氮罐名称不能为空', 'data': None}), 400
+    if NitrogenTank.query.filter_by(name=name).first():
+        return jsonify({'code': 400, 'message': f'液氮罐「{name}」已存在', 'data': None}), 400
 
     tank = NitrogenTank(
         name=name,
@@ -3126,9 +3323,12 @@ def update_cryo_tank(current_user, tank_id):
     if not tank:
         return jsonify({'code': 404, 'message': '液氮罐不存在', 'data': None}), 404
 
-    data = request.get_json()
-    name = data.get('name', '').strip()
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
     if name:
+        dup = NitrogenTank.query.filter(NitrogenTank.name == name, NitrogenTank.id != tank_id).first()
+        if dup:
+            return jsonify({'code': 400, 'message': f'液氮罐「{name}」已存在', 'data': None}), 400
         tank.name = name
     if 'description' in data:
         tank.description = data.get('description', '')
@@ -3243,10 +3443,12 @@ def create_cryo_box(current_user, tank_id):
     if not tank:
         return jsonify({'code': 404, 'message': '液氮罐不存在', 'data': None}), 404
 
-    data = request.get_json()
-    box_name = data.get('box_name', '').strip()
+    data = request.get_json() or {}
+    box_name = (data.get('box_name') or '').strip()
     if not box_name:
         return jsonify({'code': 400, 'message': '盒子名称不能为空', 'data': None}), 400
+    if CryoBox.query.filter_by(tank_id=tank_id, box_name=box_name).first():
+        return jsonify({'code': 400, 'message': f'该液氮罐下已存在名为「{box_name}」的冻存盒', 'data': None}), 400
 
     columns = data.get('columns', [])
 
@@ -3277,9 +3479,15 @@ def update_cryo_box(current_user, box_id):
     if not box:
         return jsonify({'code': 404, 'message': '冻存盒不存在', 'data': None}), 404
 
-    data = request.get_json()
+    data = request.get_json() or {}
     if 'box_name' in data:
-        box.box_name = data['box_name'].strip()
+        new_name = (data['box_name'] or '').strip()
+        if not new_name:
+            return jsonify({'code': 400, 'message': '盒子名称不能为空', 'data': None}), 400
+        dup = CryoBox.query.filter(CryoBox.tank_id == box.tank_id, CryoBox.box_name == new_name, CryoBox.id != box_id).first()
+        if dup:
+            return jsonify({'code': 400, 'message': f'该液氮罐下已存在名为「{new_name}」的冻存盒', 'data': None}), 400
+        box.box_name = new_name
     if 'box_description' in data:
         box.box_description = data.get('box_description', '')
     if 'columns' in data:
@@ -3540,8 +3748,10 @@ def upsert_cryo_cell(current_user, box_id, row, col):
     if not box:
         return jsonify({'code': 404, 'message': '冻存盒不存在', 'data': None}), 404
 
-    data = request.get_json()
-    cell_data = data.get('data', {})
+    data = request.get_json() or {}
+    cell_data = data.get('data')
+    if not isinstance(cell_data, dict):
+        cell_data = {}
 
     cell = CryoCell.query.filter_by(box_id=box_id, row=row, col=col).first()
     if cell:
@@ -3598,31 +3808,34 @@ def delete_cryo_cell(current_user, box_id, row, col):
         if linked_row:
             table = TableStructure.query.get(cell.linked_table_id)
             if table:
-                row_data = json.loads(linked_row.data)
-                columns = json.loads(table.columns)
+                try:
+                    row_data = json.loads(linked_row.data) if isinstance(linked_row.data, str) else (linked_row.data or {})
+                    columns = json.loads(table.columns) if isinstance(table.columns, str) else (table.columns or [])
 
-                for col_def in columns:
-                    if col_def.get('is_storage'):
-                        col_name = col_def['column_name']
-                        storage_val = row_data.get(col_name)
-                        if isinstance(storage_val, dict) and storage_val.get('_storage'):
-                            positions = storage_val.get('_positions', [])
-                            new_positions = [
-                                p for p in positions
-                                if not (p.get('box_id') == box_id and p.get('row') == row and p.get('col') == col)
-                            ]
-                            if len(new_positions) < len(positions):
-                                if new_positions:
-                                    text_parts = [f"{p.get('tank_name','')} > {p.get('box_name','')} > {p.get('label','')}" for p in new_positions]
-                                    row_data[col_name] = {
-                                        '_storage': True,
-                                        '_positions': new_positions,
-                                        '_text': ', '.join(text_parts)
-                                    }
-                                else:
-                                    row_data[col_name] = ''
-                                linked_row.data = json.dumps(row_data, ensure_ascii=False)
-                        break
+                    for col_def in columns:
+                        if col_def.get('is_storage'):
+                            col_name = col_def['column_name']
+                            storage_val = row_data.get(col_name)
+                            if isinstance(storage_val, dict) and storage_val.get('_storage'):
+                                positions = storage_val.get('_positions', [])
+                                new_positions = [
+                                    p for p in positions
+                                    if not (p.get('box_id') == box_id and p.get('row') == row and p.get('col') == col)
+                                ]
+                                if len(new_positions) < len(positions):
+                                    if new_positions:
+                                        text_parts = [f"{p.get('tank_name','')} > {p.get('box_name','')} > {p.get('label','')}" for p in new_positions]
+                                        row_data[col_name] = {
+                                            '_storage': True,
+                                            '_positions': new_positions,
+                                            '_text': ', '.join(text_parts)
+                                        }
+                                    else:
+                                        row_data[col_name] = ''
+                                    linked_row.data = json.dumps(row_data, ensure_ascii=False)
+                            break
+                except Exception:
+                    pass
 
     # 清空格子 + 表格数据更新 → 一次性提交
     db.session.delete(cell)

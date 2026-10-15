@@ -283,6 +283,7 @@ const CryoGrid = () => {
             if (typeof val === 'object' && val._storage && val._positions) {
               // Count how many of these positions are being cleared
               const remainingAfterClear = val._positions.filter(p => {
+                if (p.box_id && String(p.box_id) !== String(boxId)) return true
                 const key = `${p.row},${p.col}`
                 return !dragSelected.has(key)
               })

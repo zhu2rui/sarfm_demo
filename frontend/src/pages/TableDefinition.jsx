@@ -75,7 +75,8 @@ const TableDefinition = () => {
         message.error(response.data.message)
       }
     } catch (error) {
-      message.error(t('tableDefinition.success'))
+      const errMsg = error.response?.data?.message || t('tableDefinition.error') || '创建表格失败'
+      message.error(errMsg)
       console.error('Create table error:', error)
     }
   }

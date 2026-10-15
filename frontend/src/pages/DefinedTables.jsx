@@ -291,7 +291,7 @@ const DefinedTables = () => {
         message.error(response.data.message)
       }
     } catch (error) {
-      message.error('更新表格结构失败')
+      message.error(error.response?.data?.message || '更新表格结构失败')
       console.error('Update table error:', error)
     }
   }
@@ -322,7 +322,7 @@ const DefinedTables = () => {
         message.error(response.data.message)
       }
     } catch (error) {
-      message.error('删除表格结构失败')
+      message.error(error.response?.data?.message || '删除表格结构失败')
       console.error('Delete table error:', error)
     } finally {
       setDeletingTableId(null) // 重置正在删除的表格ID
