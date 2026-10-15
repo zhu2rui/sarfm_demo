@@ -533,6 +533,9 @@ const DataManagement = () => {
         setIsEditMode(false)
         setIsCopyMode(true)
         setCurrentData(record)
+        setSelectedPositions({})
+        setCurrentStorageColumn(null)
+        setStoragePreSelected([])
         
         // 初始化保留链接状态
         const initialKeepLinks = {}
@@ -550,6 +553,11 @@ const DataManagement = () => {
           
           // 跳过自增列
           if (column.autoIncrement) {
+            return
+          }
+
+          // 跳过存储列（复制新行不继承原物理位置，需用户单独指定）
+          if (column.is_storage) {
             return
           }
           
@@ -1427,7 +1435,7 @@ const DataManagement = () => {
               if (positions.length > 0) {
                 // Link to the first position's box grid
                 const firstPos = positions[0]
-                const highlight = positions.map(p => `${p.row},${p.col}`).join('|')
+                const highlight = positions.filter(p => p.box_id === firstPos.box_id).map(p => `${p.row},${p.col}`).join('|')
                 return (
                   <a
                     href={`/cryo-box/${firstPos.box_id}/grid`}

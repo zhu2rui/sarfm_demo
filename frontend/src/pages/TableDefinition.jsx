@@ -56,9 +56,15 @@ const TableDefinition = () => {
   // 提交表格结构
   const handleSubmit = async (values) => {
     try {
+      const sanitizedColumns = (values.columns || []).map(col => {
+        if (col.is_storage) {
+          return { ...col, autoIncrement: false, prefix: '' };
+        }
+        return col;
+      });
       const response = await axios.post('/api/v1/tables', {
         table_name: values.tableName,
-        columns: values.columns
+        columns: sanitizedColumns
       })
       
       if (response.data.code === 200) {
@@ -162,58 +168,83 @@ const TableDefinition = () => {
                       文本
                     </Tag>
 
-                    {/* 选项组：下拉显示、是否自增、存储列 - 关键：禁止文字折行 */}
-                    <div className="column-checkboxes" style={{ display: 'flex', alignItems: 'center', gap: 12, whiteSpace: 'nowrap', flexShrink: 0 }}>
-                      <Form.Item
-                        {...restField}
-                        name={[name, 'dropDown']}
-                        valuePropName="checked"
-                        noStyle
-                      >
-                        <Checkbox style={{ whiteSpace: 'nowrap' }}>下拉显示</Checkbox>
-                      </Form.Item>
+                    {/* 选项组与前缀输入框（存储列与自增+前缀互斥） */}
+                    <Form.Item noStyle shouldUpdate>
+                      {({ getFieldValue }) => {
+                        const isStorage = !!getFieldValue(['columns', name, 'is_storage']);
+                        return (
+                          <>
+                            <div className="column-checkboxes" style={{ display: 'flex', alignItems: 'center', gap: 12, whiteSpace: 'nowrap', flexShrink: 0 }}>
+                              <Form.Item
+                                {...restField}
+                                name={[name, 'dropDown']}
+                                valuePropName="checked"
+                                noStyle
+                              >
+                                <Checkbox style={{ whiteSpace: 'nowrap' }}>下拉显示</Checkbox>
+                              </Form.Item>
 
-                      <Form.Item
-                        {...restField}
-                        name={[name, 'autoIncrement']}
-                        valuePropName="checked"
-                        noStyle
-                        getValueFromEvent={(e) => {
-                          if (e.target.checked) {
-                            form.setFieldsValue({ columns: form.getFieldValue('columns').map((col, i) => i === name ? {...col, is_storage: false} : col) });
-                          }
-                          return e.target.checked;
-                        }}
-                      >
-                        <Checkbox style={{ whiteSpace: 'nowrap' }}>是否自增</Checkbox>
-                      </Form.Item>
+                              <Form.Item
+                                {...restField}
+                                name={[name, 'autoIncrement']}
+                                valuePropName="checked"
+                                noStyle
+                                getValueFromEvent={(e) => {
+                                  const checked = e?.target?.checked;
+                                  if (checked) {
+                                    if (form.setFieldValue) {
+                                      form.setFieldValue(['columns', name, 'is_storage'], false);
+                                    } else {
+                                      form.setFieldsValue({
+                                        columns: (form.getFieldValue('columns') || []).map((col, i) => i === name ? { ...col, is_storage: false, autoIncrement: true } : col)
+                                      });
+                                    }
+                                  }
+                                  return checked;
+                                }}
+                              >
+                                <Checkbox disabled={isStorage} style={{ whiteSpace: 'nowrap' }}>是否自增</Checkbox>
+                              </Form.Item>
 
-                      <Form.Item
-                        {...restField}
-                        name={[name, 'is_storage']}
-                        valuePropName="checked"
-                        noStyle
-                        getValueFromEvent={(e) => {
-                          if (e.target.checked) {
-                            form.setFieldsValue({ columns: form.getFieldValue('columns').map((col, i) => i === name ? {...col, autoIncrement: false} : col) });
-                          }
-                          return e.target.checked;
-                        }}
-                      >
-                        <Checkbox style={{ whiteSpace: 'nowrap' }}>{t('tableDefinition.storageColumn')}</Checkbox>
-                      </Form.Item>
-                    </div>
+                              <Form.Item
+                                {...restField}
+                                name={[name, 'is_storage']}
+                                valuePropName="checked"
+                                noStyle
+                                getValueFromEvent={(e) => {
+                                  const checked = e?.target?.checked;
+                                  if (checked) {
+                                    if (form.setFieldValue) {
+                                      form.setFieldValue(['columns', name, 'autoIncrement'], false);
+                                      form.setFieldValue(['columns', name, 'prefix'], '');
+                                    } else {
+                                      form.setFieldsValue({
+                                        columns: (form.getFieldValue('columns') || []).map((col, i) => i === name ? { ...col, autoIncrement: false, prefix: '', is_storage: true } : col)
+                                      });
+                                    }
+                                  }
+                                  return checked;
+                                }}
+                              >
+                                <Checkbox style={{ whiteSpace: 'nowrap' }}>{t('tableDefinition.storageColumn')}</Checkbox>
+                              </Form.Item>
+                            </div>
 
-                    {/* 前缀输入框 */}
-                    <Form.Item
-                      {...restField}
-                      name={[name, 'prefix']}
-                      noStyle
-                    >
-                      <Input 
-                        placeholder="前置字符串(如SN-)" 
-                        style={{ width: 130, flexShrink: 0 }}
-                      />
+                            {/* 前缀输入框 */}
+                            <Form.Item
+                              {...restField}
+                              name={[name, 'prefix']}
+                              noStyle
+                            >
+                              <Input 
+                                disabled={isStorage}
+                                placeholder={isStorage ? "存储列无前缀" : "前置字符串(如SN-)"} 
+                                style={{ width: 130, flexShrink: 0 }}
+                              />
+                            </Form.Item>
+                          </>
+                        );
+                      }}
                     </Form.Item>
 
                     {/* 删除按钮 */}

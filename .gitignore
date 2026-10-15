@@ -10,6 +10,9 @@ build/
 # 数据库文件
 backend/instance/
 backend/db_backup/
+*.db
+*.sqlite
+*.sqlite3
 
 # 日志文件
 *.log
